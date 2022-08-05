@@ -1,0 +1,5 @@
+balance: [1, 1]
+margin: 0.1
+invert: 0
+mode: hinge
+lr: [1.e-4, 1.e-4]

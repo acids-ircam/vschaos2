@@ -1,0 +1,9 @@
+defaults:
+  - encoder/vae_conv_mid
+  - decoder/vae_conv_mid
+  - training/vae_mse
+
+type: AutoEncoder
+latent:
+  dist: Normal
+  dim: 16

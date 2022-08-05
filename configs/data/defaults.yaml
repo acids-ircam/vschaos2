@@ -1,0 +1,6 @@
+defaults:
+  - dataset: audio
+  - transforms: dgt-1024
+  - _self_
+
+module: AudioDataModule

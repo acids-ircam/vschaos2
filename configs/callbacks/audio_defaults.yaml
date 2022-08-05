@@ -1,0 +1,4 @@
+- { type: ModelCheckpoint, args: {filename: "${hydra:job.name}", save_last: True, every_n_epochs: 1, epoch_schedule: [1, 5, 10, 50, 100, 500], monitor: rec_loss/valid}}
+- { type: LearningRateMonitor, args: {logging_interval: "epoch"} }
+- { type: DissectionMonitor, args: {monitor_epochs: 10, embedding_epochs: 10, n_batches: 3, batch_size: 512} }
+- { type: AudioReconstructionMonitor, args: {reconstruction_epochs: 1, monitor_epochs: 1, plot_reconstructions: 1, plot_samples: 1, generate_files: 1, generate_trajs: 0}}

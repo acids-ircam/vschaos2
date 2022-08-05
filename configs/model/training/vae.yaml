@@ -1,0 +1,10 @@
+reconstruction:
+  type: LogDensity
+regularization:
+  type: KLD
+optimizer:
+  type: Adam
+  args:
+    lr: 1.e-4
+beta: 1.0
+warmup: 1000

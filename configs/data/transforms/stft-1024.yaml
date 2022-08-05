@@ -1,0 +1,5 @@
+force: 0
+name: stft-1024
+pre_transforms:
+  - {type: Mono, args: {squeeze: 1}}
+  - {type: STFT, args: {nfft: 1024, hop_size: 256}}

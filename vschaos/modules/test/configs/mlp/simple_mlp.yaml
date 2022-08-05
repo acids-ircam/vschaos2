@@ -1,0 +1,7 @@
+input_shape: 500
+nlayers: 3
+hidden_dims: 800
+nnlin: ELU
+norm: batch
+dropout: 0.1
+target_shape: 300

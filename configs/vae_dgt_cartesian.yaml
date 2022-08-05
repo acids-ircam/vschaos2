@@ -1,0 +1,64 @@
+name: ???
+rundir: "${dir:runtime}/saves/${name}"
+
+hydra:
+  job:
+    name: "${name}"
+  run:
+    dir: "${rundir}/${name}"
+  sweep:
+    dir: "${dir:runtime}/saves/${name}"
+    subdir: "${base:${data.dataset.root}}"
+
+defaults:
+  - data:
+    - defaults
+    - dataset/audio
+    - transforms/dgt-1024
+  - model: vae
+  - callbacks: audio_defaults
+  - _self_
+
+data:
+  transforms: 
+    name: dgt-1024-cartesian
+    pre_transforms:
+      - {type: Mono, args: {squeeze: 1}}
+      - {type: DGT, args: {n_fft: &n_fft 2048, hop_length: 512}}
+      - {type: Cartesian, args: {real_args: {mode: bipolar}, imag_args: {mode: bipolar}}}
+  augmentations:
+    - {type: Shift, args: {prob: 1.}}
+    - {type: Normal, args: {prob: 0.5, amp_range: 0.01, clamp: [-1., 1.]}}
+  dataset:
+    flatten: 0
+    # for learning single data spectral frames, the data can be whether flattened of randomly picked in each file. For the
+    # second case, rather uncomment the sequence section.
+    # sequence:
+    #   length: 1
+    #   mode: random
+    #   idx: -2
+  loader:
+    batch_size: 256
+    shuffle: True
+
+# here we add specific parameters for the decoder's output (softplus + normal distribution).
+model:
+  latent:
+    dist: Normal
+    dim: 8
+  decoder:
+    args:
+      out_nnlin: Tanh
+      target_dist: Normal
+  training: 
+    beta: 0.1
+    beta_schedule_type: batch
+    reconstruction:
+      type: MSE
+    warmup: 50000
+
+pl_trainer:
+  max_epochs: 500
+  limit_train_batches: 1
+  limit_val_batches: 1
+

@@ -1,0 +1,8 @@
+balance: [5, 1]
+margin: 0.1
+invert: 0
+mode: wasserstein
+wgan_clip: 1.e-2
+gp: 10.0
+#feature_matching: 10.0
+lr: [5.e-5, 5.e-5]
