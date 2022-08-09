@@ -350,7 +350,6 @@ class AutoEncoder(Model):
         self.update_dimreds(latent_pos)
 
     def update_dimreds(self, latent_pos):
-        latent_pos = torch.cat(latent_pos, 0)
         for dimred in self.dimreds.values():
             dimred.fit(latent_pos)
         self._latent_buffer = []

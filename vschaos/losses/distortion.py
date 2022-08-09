@@ -46,8 +46,9 @@ class MSE(Loss):
     def __repr__(self):
         return "MSE()"
 
-    def __init__(self, reduction=None):
+    def __init__(self, normalize=None, reduction=None):
         super().__init__(reduction=reduction)
+        self.normalize=normalize
 
     def forward(self, x, target, drop_detail = False, sample=False, **kwargs):
         if isinstance(x, dist.Distribution):
@@ -63,6 +64,13 @@ class MSE(Loss):
                     x = x.mean
                 elif isinstance(x, (dist.Bernoulli, dist.Categorical)):
                     x = x.probs
+        if self.normalize is not None:
+            tens_max = target
+            for idx in self.normalize:
+                tens_max = tens_max.max(idx).values.unsqueeze(idx)
+            if tens_max.nonzero().all():
+                x = x / tens_max
+                target = target / tens_max
         mse_loss = self.reduce(torch.nn.functional.mse_loss(x, target, reduction="none"))
         if drop_detail:
             return mse_loss, {"mse": mse_loss.detach().cpu()}

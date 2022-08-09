@@ -5,6 +5,6 @@ args:
   channels: [16,16,32,32,64]
   dilation: [1,1,1,1,1]
   stride: [4,4,2,2,1]
-  kernel_size: [11,9,7,5,3]
+  kernel_size: [21,17,11,9,5]
   final_conv: 0
   bias: True 

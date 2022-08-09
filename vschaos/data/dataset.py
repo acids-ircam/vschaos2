@@ -459,7 +459,7 @@ class AudioDataset(Dataset):
         self.hash = {self.files[i]:i for i in range(len(self.files))}
 
     def import_data(self, scale: bool = True, write_transforms: bool = False,
-                    save_transform_as: str = None, min_len: int = None, force: bool = False) -> None:
+            save_transform_as: str = None, min_len: int = None, force: bool = False) -> None:
         """
         Import data listed in dataset files.
         Args:
@@ -479,7 +479,7 @@ class AudioDataset(Dataset):
         running_id = 0
         for i, f in tqdm(enumerate(self.files), total=len(self.files), desc="Importing audio files..."):
             current_data, current_metadata = parse_audio_file(os.path.abspath(self.root_directory+"/"+f),
-                                                              sr=self.sr, len=self.target_length, min_len = min_len)
+                    sr=self.sr, len=self.target_length, min_len = min_len)
             if len(metadata.keys()) == 0:
                 metadata = {k: [] for k in current_metadata.keys()}
             data.append(current_data)
@@ -553,7 +553,7 @@ class AudioDataset(Dataset):
             return {}
 
         task_test = lambda x: os.path.isdir(f"{metadata_directory}/{x}") \
-                              and os.path.isfile(f"{metadata_directory}/{x}/metadata.txt")
+                and os.path.isfile(f"{metadata_directory}/{x}/metadata.txt")
         tasks = list(filter(task_test, os.listdir(metadata_directory)))
 
         metadata = {}
@@ -629,6 +629,7 @@ class AudioDataset(Dataset):
                 transformed_data.append(new_data)
                 transformed_meta.append({'time': new_time, 'sr': self.metadata['sr'][i]})
             transformed_meta = {k: [t[k] for t in transformed_meta] for k in transformed_meta[0].keys()}
+            self._pre_transforms = self._transforms
             self._transforms = AudioTransform()
             self.data = transformed_data
             self.metadata = {**self.metadata, **transformed_meta}
@@ -710,8 +711,8 @@ class AudioDataset(Dataset):
                 'sequence_dim':self._sequence_dim,
                 'flattened': self._flattened}
 
-    def save(self, name: str, write_transforms: bool = False, **kwargs) -> None:
-        """Manage folders and save data to disk
+        def save(self, name: str, write_transforms: bool = False, **kwargs) -> None:
+            """Manage folders and save data to disk
 
         Args:
             name (str): dataset instance name

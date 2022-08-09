@@ -3,7 +3,7 @@ args:
   channels: [64,32,32,16,16]
   dilation: [1,1,1,1,1]
   stride: [1,2,2,4,4]
-  kernel_size: [3,5,7,9,11]
+  kernel_size: [21,17,11,9,5]
   nnlin: ELU
   bias: True
   norm: batch
