@@ -21,6 +21,7 @@ class ReconstructionLoss(Loss):
     def forward(self, x, target, drop_detail=False, **kwargs):
         pass
 
+
 class LogDensity(Loss):
     def __repr__(self):
         return "LogDensity()"
@@ -76,3 +77,38 @@ class MSE(Loss):
             return mse_loss, {"mse": mse_loss.detach().cpu()}
         else:
             return mse_loss
+
+class L1(Loss):
+    def __repr__(self):
+        return "L1()"
+
+    def __init__(self, normalize=None, reduction=None):
+        super().__init__(reduction=reduction)
+        self.normalize=normalize
+
+    def forward(self, x, target, drop_detail = False, sample=False, **kwargs):
+        if isinstance(x, dist.Distribution):
+            if sample:
+                if x.has_rsample:
+                    x = x.rsample()
+                else:
+                    if x.grad_fn is not None:
+                        print('[Warning] sampling a tensor in a graph will cut backpropagation' )
+                    x = x.sample()
+            else:
+                if isinstance(x, dist.Normal):
+                    x = x.mean
+                elif isinstance(x, (dist.Bernoulli, dist.Categorical)):
+                    x = x.probs
+        if self.normalize is not None:
+            tens_max = target
+            for idx in self.normalize:
+                tens_max = tens_max.max(idx).values.unsqueeze(idx)
+            if tens_max.nonzero().all():
+                x = x / tens_max
+                target = target / tens_max
+        l1_loss = self.reduce(torch.nn.functional.l1_loss(x, target, reduction="none"))
+        if drop_detail:
+            return l1_loss, {"l1": l1_loss.detach().cpu()}
+        else:
+            return l1_loss

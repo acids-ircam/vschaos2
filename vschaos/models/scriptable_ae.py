@@ -1,6 +1,10 @@
 from argparse import ArgumentParser
+from importlib.metadata import metadata
+from turtle import forward
 import torch, torch.nn as nn, sys
 import acids_transforms as at
+
+from vschaos.modules.layers.misc import TimeEmbedding
 from ..utils import reshape_batch, flatten_batch, checklist
 from .auto_encoders import AutoEncoder
 from typing import Union, Callable, List, Tuple, Dict
@@ -9,7 +13,8 @@ TYPE_HASH = {
     bool: 0,
     int: 1,
     float: 2,
-    str: 3
+    str: 3,
+    torch.Tensor: 4
 }
 
 def retrieve_oaparams_from_transform(transform, inversion_mode: str = None):
@@ -39,6 +44,33 @@ def reshape_cond(label, target_x):
     repeat_args += [target_x.shape[-1]]
     return label.repeat(repeat_args)
 
+class EmbeddingWrapper(nn.Module):
+    def __init__(self, embedding_module):
+        super().__init__()
+        self.embedding_module = embedding_module
+        self.needs_long = False
+        if type(embedding_module) in [torch.nn.Embedding, at.OneHot]:
+            self.needs_long = True
+
+    def forward(self, x: torch.Tensor):
+        x = x.mean(-1)
+        if self.needs_long:
+            x = x.long()
+        return self.embedding_module.forward(x)
+    def invert(self, x: torch.Tensor):
+        return self.embedding_module.invert(x)
+
+class DimredWrapper(nn.Module):
+    def __init__(self, dimred_module):
+        super().__init__()
+        self.dimred_module = dimred_module
+
+    def forward(self, x: torch.Tensor):
+        return self.dimred_module.forward(x)
+
+    def invert(self, x: torch.Tensor):
+        return self.dimred_module.invert(x)
+
 class ScriptableSpectralAutoEncoder(nn.Module):
     def __init__(self, auto_encoder: AutoEncoder, transform: Union[Callable, None] = None, 
                  use_oa: bool = True, win_length: int = None, hop_length: int = None,
@@ -53,13 +85,6 @@ class ScriptableSpectralAutoEncoder(nn.Module):
             self.win_length, self.hop_length = retrieve_oaparams_from_transform(transform, inversion_mode=inversion_mode)
         else:
             self.win_length, self.hop_length = win_length, hop_length
-        self.encoder = auto_encoder.encoder
-        self.encoder_type = auto_encoder.encoder.target_dist
-        self.decoder = auto_encoder.decoder
-        self.decoder_type = auto_encoder.encoder.target_dist
-        self.conditionings = auto_encoder.conditionings
-        self.concat_embeddings = auto_encoder.concat_embeddings
-        self.prediction_modules = auto_encoder.prediction_modules
         # overlap add
         self.use_oa = use_oa
         if use_oa:
@@ -67,9 +92,26 @@ class ScriptableSpectralAutoEncoder(nn.Module):
             self.overlap_add = at.OverlapAdd(self.win_length, self.hop_length)
             self.transform = self.transform.realtime()
         self.spectral_transform = self._get_spectral_transform(self.transform)
-        # use dimred
+        # set sub-modules
+        self.encoder = auto_encoder.encoder
+        self.encoder_type = auto_encoder.encoder.target_dist
+        self.decoder = auto_encoder.decoder
+        self.decoder_type = auto_encoder.encoder.target_dist
+        # set conditionings
+        self.conditionings = auto_encoder.conditionings
+        self.concat_embeddings = nn.ModuleDict()
+        for task, embedding in auto_encoder.concat_embeddings.items():
+            self.concat_embeddings[task] = EmbeddingWrapper(embedding)
+        self.prediction_modules = nn.ModuleDict()
+        if hasattr(auto_encoder, "prediction_modules"):
+            self.prediction_modules = auto_encoder.prediction_modules
+        # set dimensionality reduction
+        if hasattr(auto_encoder, "dimreds"):
+            self.dimreds = nn.ModuleDict()
+            for k, v in auto_encoder.dimreds.items():
+                self.dimreds[k] = DimredWrapper(v)
         if use_dimred is None:
-            use_dimred = auto_encoder.config.latent.dim > 16
+            use_dimred = auto_encoder.config.latent.dim >= 8
         self.use_dimred = use_dimred
         # set intern buffers
         self._set_buffers(auto_encoder)
@@ -81,12 +123,10 @@ class ScriptableSpectralAutoEncoder(nn.Module):
         self._set_params(auto_encoder)
         self._set_attributes(auto_encoder)
 
-
     # attributes & buffers
     def _set_buffers(self, auto_encoder):
         # dim reduction parameters
         self.register_buffer("temperature", torch.tensor(0.))
-        self.register_buffer("latent_dimred", auto_encoder.latent_dimred)
         self.register_buffer("latent_mean", auto_encoder.latent_mean)
         if hasattr(auto_encoder, "fidelity"):
             self.register_buffer("fidelity", auto_encoder.fidelity)
@@ -105,38 +145,42 @@ class ScriptableSpectralAutoEncoder(nn.Module):
         self.forward_input_labels = ["(signal) channel %s"%(i+1) for i in range(forward_input_shape)]
         self.encode_output_labels = ["(signal) latent dim %s"%(i+1) for i in range(encode_output_shape)]
         self.decode_output_labels = ["(signal) channel %s"%(i+1) for i in range(decode_output_shape)]
-        self.forward_output_labels = []
+        self.forward_output_labels = ["(signal) channel %s"%(i+1) for i in range(decode_output_shape)]
         self._ordered_tasks = [o['name'] for o in auto_encoder.config.get('conditioning', {'tasks': []})['tasks']]
-        self._encoder_ordered_tasks = []
-        self._decoder_ordered_tasks = []
-        self._forward_ordered_tasks = []
+        self._encoder_ordered_tasks = torch.jit.Attribute([], List[str])
+        self._decoder_ordered_tasks = torch.jit.Attribute([], List[str])
+        self._forward_ordered_tasks = torch.jit.Attribute([], List[str])
         # check conditionings
         for k in self._ordered_tasks:
             if self.conditionings[k].get('mode', 'cat') == "cat":
                 label_dim = self.conditionings[k]['dim']
                 targets = checklist(self.conditionings[k].get('target', ['decoder']))
+                if isinstance(auto_encoder.concat_embeddings[k], (torch.nn.Embedding, at.OneHot)):
+                    task_label = f'(signal) {k} label (0-{label_dim})'
+                else:
+                    task_label = f'(signal) {k} label (float)'
                 if "encoder" in targets:
                     encode_input_shape += 1
                     forward_input_shape += 1
-                    self.encode_input_labels.append(f'(signal) {k} label (0-{label_dim})')
-                    self.forward_input_labels.append(f'(signal) {k} label (0-{label_dim})')
-                    self._encoder_ordered_tasks.append(k)
-                    self._forward_ordered_tasks.append(k)
+                    self.encode_input_labels.append(task_label)
+                    self.forward_input_labels.append(task_label)
+                    self._encoder_ordered_tasks.value.append(k)
+                    self._forward_ordered_tasks.value.append(k)
                 if "decoder" in targets:
                     decode_input_shape += 1
-                    self.decode_input_labels.append(f'(signal) {k} label (0-{label_dim})')
-                    self._decoder_ordered_tasks.append(k)
+                    self.decode_input_labels.append(task_label)
+                    self._decoder_ordered_tasks.value.append(k)
                 if k in self.prediction_modules.keys():
                     encode_output_shape += 1
-                    self.encode_output_labels.append(f"(signal) {k} label")
-                    if k not in self._encoder_ordered_tasks:
+                    self.encode_output_labels.append(task_label)
+                    if k not in self._encoder_ordered_tasks.value:
                         forward_output_shape += 1
-                        self.forward_output_labels.append(f"(signal) {k} label")
+                        self.forward_output_labels.append(task_label)
                 else:
                     if not "encoder" in targets:
                         forward_input_shape += 1
-                        self.forward_input_labels.append(f'(signal) {k} label (0-{label_dim})')
-                        self._forward_ordered_tasks.append(k)
+                        self.forward_input_labels.append(task_label)
+                        self._forward_ordered_tasks.value.append(k)
             
         # set parameter buffers
         if self._forward_available:
@@ -149,8 +193,13 @@ class ScriptableSpectralAutoEncoder(nn.Module):
     def _set_attributes(self, auto_encoder):
         self.register_buffer("inversion_mode_params", torch.tensor([TYPE_HASH[str]]))
         self.register_buffer("temperature_params", torch.tensor([TYPE_HASH[float]]))
+        self.register_buffer("dimred_params", torch.tensor([TYPE_HASH[str]]))
         self._attributes: List[str] = ['inversion_mode', 'temperature', 'dimred']
         self.dimred = "none"
+
+    @torch.jit.export
+    def get_methods(self):
+        return ['encode', 'decode', 'forward']
 
     @torch.jit.export
     def get_attributes(self):
@@ -168,20 +217,33 @@ class ScriptableSpectralAutoEncoder(nn.Module):
 
     # dimensionality reduction methods
     def project_z(self, z:torch.Tensor):
+        if self.dimred == "none":
+            return z
         z, batch_size = flatten_batch(z, dim=-2)
         z = z - self.latent_mean
-        z = nn.functional.conv1d(z.transpose(-1,-2), self.latent_dimred.unsqueeze(-1)).transpose(-1,-2)
+        for k, v in self.dimreds.items():
+            if k == self.dimred:
+                z = v.forward(z)
         z = reshape_batch(z, batch_size, dim=-2)
         return z
 
     def unproject_z(self, z:torch.Tensor):
+        if self.dimred == "none":
+            return z
         z, batch_size = flatten_batch(z, dim=-2)
-        z = nn.functional.conv1d(z.transpose(-1,-2), self.latent_dimred.t().unsqueeze(-1)).transpose(-1,-2)
+        # z = nn.functional.conv1d(z.transpose(-1,-2), self.latent_dimred.t().unsqueeze(-1)).transpose(-1,-2)
+        for k, v in self.dimreds.items():
+            if k == self.dimred:
+                z = v.invert(z)
         z = z + self.latent_mean
         z = reshape_batch(z, batch_size, dim=-2)
         return z
 
-    # attributes
+    # inversion mode
+    @torch.jit.export
+    def get_inversion_mode(self) -> str:
+        return self.spectral_transform.inversion_mode
+        
     @torch.jit.export
     def set_inversion_mode(self, inversion_mode: str) -> int:
         if not inversion_mode in self.spectral_transform.get_inversion_modes():
@@ -189,6 +251,11 @@ class ScriptableSpectralAutoEncoder(nn.Module):
         else:
             self.spectral_transform.set_inversion_mode(inversion_mode)
             return 0
+
+    # temperature
+    @torch.jit.export
+    def get_temperature(self) -> float:
+        return self.temperature.item()
 
     @torch.jit.export
     def set_temperature(self, temperature: float) -> int:
@@ -198,26 +265,36 @@ class ScriptableSpectralAutoEncoder(nn.Module):
         else:
             return -1
 
+    # dimensionality reduction
+    @torch.jit.export
+    def get_dimred(self) -> str:
+        return self.dimred
+
     @torch.jit.export 
     def set_dimred(self, dimred: str) -> int:
         if dimred == "none":
             self.dimred = "none"
-        elif dimred == "pca":
-            self.dimred = "pca"
-        elif dimred == "ica":
-            self.dimred = "ica"
         else:
-            return -1
+            for k, v in self.dimreds.items():
+                if k == dimred:
+                    self.dimred = dimred
+            if self.dimred != dimred:
+                return -1
         return 0
 
-    def get_concat_embedding(self, task: str):
+    def transform_label(self, y: torch.Tensor, task: str) -> torch.Tensor:
         for t, embed in self.concat_embeddings.items():
+            if t==task: 
+                y = embed(y)
+        return y 
+
+    def get_dimred_module(self, task: str) -> DimredWrapper:
+        for t, embed in self.dimreds.items():
             if t==task:
                 return embed
         raise ValueError("embedding for task %s not found"%task)
 
     def get_prediction_module(self, task: str):
-
         raise ValueError("prediction module for task %s not found"%task)
 
     def split_encoder_input(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -225,11 +302,13 @@ class ScriptableSpectralAutoEncoder(nn.Module):
         x_splitted = list(x.split(splits, -2))
         current_id = 1
         for t in self._encoder_ordered_tasks:
-            embedding = self.get_concat_embedding(t)
-            x_splitted[current_id] = embedding.forward(x_splitted[current_id].squeeze(-2).mean(-1).round().long()).float()
+            x_splitted[current_id] = self.transform_label(x_splitted[current_id], t).float()
             current_id += 1
         x = x_splitted[0] 
-        y = torch.cat(x_splitted[1:], -2)
+        if len(x_splitted[1:]) == 0:
+            y = torch.zeros(0)
+        else:
+            y = torch.cat(x_splitted[1:], -2)
         return x, y
 
     def split_decoder_input(self, z: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -237,11 +316,13 @@ class ScriptableSpectralAutoEncoder(nn.Module):
         z_splitted = list(z.split(splits, -1))
         current_id = 1
         for t in self._decoder_ordered_tasks:
-            embedding = self.get_concat_embedding(t)
-            z_splitted[current_id] = embedding.forward(z_splitted[current_id].squeeze(-1).long()).float()
+            z_splitted[current_id] = self.transform_label(z_splitted[current_id], t).float()
             current_id += 1
         x = z_splitted[0] 
-        y = torch.cat(z_splitted[1:], -1)
+        if len(z_splitted[1:]) == 0:
+            y = torch.zeros(0)
+        else:
+            y = torch.cat(z_splitted[1:], -1)
         return x, y
 
     def split_forward_input(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -251,8 +332,8 @@ class ScriptableSpectralAutoEncoder(nn.Module):
         current_id = 1
         for t in self._forward_ordered_tasks:
             if t in self._encoder_ordered_tasks:
-                embedding = self.get_concat_embedding(t)
-                encoder_input.append(embedding.forward(x_splitted[current_id].squeeze(-2).mean(-1).round().long()).float())
+                x_splitted[current_id] = self.transform_label(x_splitted[current_id], t).float()
+            encoder_input.append(x_splitted[current_id])
             current_id += 1
         x = x_splitted[0] 
         y = torch.cat(encoder_input, -2)
@@ -272,19 +353,19 @@ class ScriptableSpectralAutoEncoder(nn.Module):
         y = torch.tensor(0)
         if len(self._decoder_ordered_tasks) > 0:
             z, y = self.split_decoder_input(z)
-        if self.use_dimred:
-            z = self.unproject_z(z)
+        z = self.unproject_z(z)
         if len(self._decoder_ordered_tasks) > 0:
             z = torch.cat([z, y], -1)
         return z
 
     def get_forward_input(self, x: torch.Tensor):
         y = torch.tensor(0)
-        if len(self._forward_ordered_tasks) > 0:
+        fot: List[str] = self._forward_ordered_tasks
+        if len(fot) > 0:
             x, y = self.split_forward_input(x)
         if self.transform is not None:
             x = self.transform(x)
-        if len(self._forward_ordered_tasks) > 0:
+        if len(fot) > 0:
             x = torch.cat([x, reshape_cond(y, x)], -2)
         return x
 
@@ -298,15 +379,15 @@ class ScriptableSpectralAutoEncoder(nn.Module):
             metadatas = []
             current_id = 1
             for t in self._decoder_ordered_tasks:
+                current_meta = torch.zeros(0)
                 if t in self._forward_ordered_tasks:
-                    embedding = self.get_concat_embedding(t)
-                    metadatas.append(embedding.forward(x_splitted[current_id].squeeze(-2).mean(-1).round().long()).float())
+                    current_meta = self.transform_label(x_splitted[current_id], t)
                     current_id += 1
                 elif t in self.prediction_modules:
                     predicted_labels = self.get_prediction(z, t)
-                    embedding_out = self.get_concat_embedding(t).forward(predicted_labels)
                     predicted_y_list.append(predicted_labels)
-                    metadatas.append(embedding_out.squeeze(-2))
+                    current_meta = self.transform_label(predicted_labels, t)
+                metadatas.append(current_meta)
             y = torch.cat(metadatas, -1)
         if self.use_dimred:
             z = self.unproject_z(z)
@@ -319,14 +400,14 @@ class ScriptableSpectralAutoEncoder(nn.Module):
         for t, module in self.prediction_modules.items():
             if t==task:
                 probs = module(z).probs
-                return probs.argmax(-1).unsqueeze(-1)
-        raise ValueError("prediction module for task %s not found"%t)
+                return probs.argmax(-1).unsqueeze(-1).float()
+        raise ValueError("prediction module for task %s not found"%task)
 
     def get_predictions(self, z: torch.Tensor) -> torch.Tensor:
         predictions = []
         for task, module in self.prediction_modules.items():
-            probs = module(z).probs
-            predictions.append(probs.argmax(-1).unsqueeze(-1))
+            probs = module(z).probs.argmax(-1).unsqueeze(-1).float()
+            predictions.append(probs)
         return torch.cat(predictions, -1)
 
     # main functions
@@ -364,7 +445,6 @@ class ScriptableSpectralAutoEncoder(nn.Module):
         if self.use_oa:
             outs = []
             iter_dim = -(len(self.encoder.input_shape) + 1)
-            #TODO bATCH!!!
             for i in range(x.size(iter_dim)):
                 x_tmp = x.index_select(-(len(self.encoder.input_shape) + 1), torch.tensor(i)).squeeze(iter_dim)
                 if self.transform is not None:
@@ -421,7 +501,6 @@ class ScriptableSpectralAutoEncoder(nn.Module):
             return None
         else:
             return transform.transforms[idx]
-
     
     def print_params(self):
         # forward

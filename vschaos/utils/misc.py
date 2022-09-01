@@ -22,7 +22,7 @@ def get_root_dir(dirpath, name):
             os.makedirs(dirpath)
         return dirpath
     else:
-        versions = list(map(lambda x: int(re.match("version_(\d)+", x).groups()[0]), folder_list))
+        versions = list(map(lambda x: int(re.match("version_(\d+)", x).groups()[0]), folder_list))
         current_version = max(versions) + 1
         dirpath = f"{dirpath}/version_{current_version}"
         if not os.path.isdir(dirpath):

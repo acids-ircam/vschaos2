@@ -143,10 +143,7 @@ class AudioReconstructionMonitor(Callback):
             generation = generation.cpu()
             originals.append(dataset.invert_transform(original))
             generations.append(dataset.invert_transform(generation))
-        try:
-            originals, generations = torch.cat(originals, -1).squeeze(), torch.cat(generations, -1).squeeze()
-        except:
-            pdb.set_trace()
+        originals, generations = torch.cat(originals, -1).squeeze(), torch.cat(generations, -1).squeeze()
         return check_mono(originals, normalize=True), check_mono(generations, normalize=True)
 
     def generate_trajectories(self, dataset, model, path):

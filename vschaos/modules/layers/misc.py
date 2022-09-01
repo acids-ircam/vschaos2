@@ -14,8 +14,9 @@ class TimeEmbedding(nn.Module):
             x = x.unsqueeze(-1)
         x = x / self.t_scale
         repeat_args = (1,) * (len(x.size()) - 1) + (int((self.out_dim - 1) / 2),)
-        x_cos = torch.cos(x.repeat(repeat_args) * self.f_scale * torch.arange(self.n_freqs))
-        x_sin = torch.sin(x.repeat(repeat_args) * self.f_scale * torch.arange(self.n_freqs))
+        t_range = torch.arange(self.n_freqs).to(x.device)
+        x_cos = torch.cos(x.repeat(repeat_args) * self.f_scale * t_range)
+        x_sin = torch.sin(x.repeat(repeat_args) * self.f_scale * t_range)
         return torch.cat([x * 2 - 1, x_cos, x_sin], -1)
 
         

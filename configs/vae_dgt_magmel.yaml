@@ -51,18 +51,22 @@ model:
   decoder:
     args:
       out_nnlin: Softplus
-      target_dist: Normal
+      target_dist: Normal #Todo : check none 
   training: 
-    beta: 0.1
-    beta_schedule_type: batch
+    beta: 1.0
+    beta_schedule_type: batch 
+    optimizer: 
+      type: Adam
+      args:
+        lr: 1.e-4
     reconstruction:
-      type: MSE
+      type: L1
       args:
         normalize: [-2, -1]
-    warmup: 100000
+    warmup: 5.e5
 
 pl_trainer:
-  max_epochs: 500
+  max_epochs: 2000
   # limit_train_batches: 1
   # limit_val_batches: 1
 

@@ -17,6 +17,7 @@ scripted_model = ScriptableSpectralAutoEncoder(model, transform, inversion_mode=
 print("model methods : ")
 if args.verbose:
     scripted_model.print_params()
+
 scripted_model = torch.jit.script(scripted_model)
 print("model attributes : \n", scripted_model.get_attributes())
 out_path = os.path.join(args.output, os.path.basename(args.model) + ".ts")
@@ -32,10 +33,11 @@ if os.path.isfile(out_path):
         exit()
 
 # save file
-# torch.jit.save(scripted_model, out_path)
+torch.jit.save(scripted_model, out_path)
 print("model saved at : ", out_path)
 
 
+# scripted_model.set_dimred('PCA')
 # test script
 if args.test:
     # test encode
