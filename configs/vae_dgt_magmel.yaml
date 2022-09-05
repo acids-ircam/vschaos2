@@ -63,6 +63,11 @@ model:
       type: L1
       args:
         normalize: [-2, -1]
+    regularization: 
+      type: LogProb
+      # args:
+      #   alpha: -2
+
     warmup: 5.e5
 
 pl_trainer:

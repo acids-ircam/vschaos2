@@ -3,6 +3,8 @@ import torch
 
 
 class Uniform(Distribution):
+    has_rsample = True 
+
     def __init__(self, low, high):
         assert low.shape == high.shape
         self.low = low

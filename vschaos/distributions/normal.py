@@ -4,6 +4,8 @@ from .base import Distribution
 
 
 class Normal(Distribution):
+    has_rsample = True
+
     def __init__(self, loc: torch.Tensor, scale: torch.Tensor):
         self._batch_shape = loc.size() 
         self._event_shape = torch.Size([0])
