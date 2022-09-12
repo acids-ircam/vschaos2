@@ -13,6 +13,7 @@ args = parser.parse_args()
 
 # script model
 model, config, transform = load_model_from_run(args.model, version=args.version, name=args.name, verbose=True)
+model = model.eval()
 scripted_model = ScriptableSpectralAutoEncoder(model, transform, inversion_mode="keep_input", use_oa=True, use_dimred=False)
 print("model methods : ")
 if args.verbose:
@@ -40,6 +41,7 @@ print("model saved at : ", out_path)
 # scripted_model.set_dimred('PCA')
 # test script
 if args.test:
+    # y[k] = torch.randint(0, model.conditionings[k]['dim'], size=(2,16384))
     # test encode
     x = torch.zeros(2, scripted_model.encode_params[0], 16384)
     z_out = scripted_model.encode(x)

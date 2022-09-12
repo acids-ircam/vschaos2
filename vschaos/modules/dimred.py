@@ -62,3 +62,30 @@ class ICA(PCA):
         x = torch.matmul(x, self.mixing.t())
         x = x + self.latent_mean
         return x
+
+class Spherical(DimRed):
+    def forward(self, x: torch.Tensor):
+        x_sph = torch.zeros_like(x)
+        x_sph[..., 0] = x.pow(2).sum(-1).sqrt()
+        for i in range(0, x.size(-1)-1):
+            if i != x.size(-1) - 2:
+                x_sph[..., i+1] = torch.acos(x[..., i] / (x[..., i:].pow(2).sum(-1)).sqrt())
+            else:
+                val = torch.acos(x[..., -2] / (x[..., -2:].pow(2).sum(-1).sqrt()))
+                x_sph[..., i+1] = torch.where(x[..., -1] >= 0, val, 2 * torch.pi - val)
+        # convert to degrees
+        x_sph[..., 1:] = (180 / torch.pi) * x_sph[..., 1:] 
+        return x_sph
+
+    def invert(self, x_sph: torch.Tensor):
+        # convert to radians
+        x_sph[..., 1:] = (torch.pi/180) * x_sph[..., 1:]
+        x = torch.zeros_like(x_sph)
+        accum = torch.ones_like(x[..., 0])
+        for i in range(x_sph.size(-1)):
+            if (i != x_sph.size(-1) - 1):
+                x[..., i] = x_sph[..., 0] * accum * x_sph[..., i+1].cos()
+                accum = accum * x_sph[..., i+1].sin()
+            else:
+                x[..., i] = x_sph[..., 0] * accum *  x_sph[..., i].sin()
+        return x_sph

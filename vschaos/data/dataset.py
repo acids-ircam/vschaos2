@@ -199,7 +199,7 @@ class AudioDataset(Dataset):
     def __len__(self):
         return len(self.data)
 
-    def __getitem__(self, item: Union[slice, Iterable[int], int], **kwargs):
+    def __getitem__(self, item: Union[slice, Iterable[int], int], augment=True, **kwargs):
         # retrieve indices
         if isinstance(item, slice):
             item = list(range(len(self)))[item]
@@ -216,9 +216,8 @@ class AudioDataset(Dataset):
         if self._transforms is not None:
             data = self._transforms.forward_with_time(data, time=metadata.get('time'))
             if metadata.get('time') is not None:
-                data, time = data
+                data, metadata['time'] = data
         # augment data
-        augment = kwargs.get('augment', self.augment)
         if len(self.augmentations) > 0 and augment:
             for a in self.augmentations:
                 data, metadata = a(data, y=metadata)
@@ -756,6 +755,24 @@ class AudioDataset(Dataset):
         # self._sequence_length = save_dict.get('sequence_length')
         # self._sequence_dim = save_dict.get('sequence_dim')
         self._flattened = save_dict.get('flattened', False)
+
+    def get_data_from_files(self, f, batch=True, augment=False):
+        f = re.sub(self.root_directory, "", f)
+        if not f in self.files:
+            print('[Warning] asking for file %s, not present in the dataset. Returning none'%f)
+        idx = self.hash[f]
+        x = []; y = {k: [] for k in self.metadata.keys()}
+        for i in checklist(idx):
+            x_tmp, y_tmp = self.__getitem__(i, augment=False)
+            x.append(x_tmp)
+            for k in y.keys():
+                y[k].append(y_tmp[k])
+        x = torch.stack(x, 0)
+        y = {k: torch.stack(v, 0) for k, v in y.items()}
+        if batch:
+            x = x.unsqueeze(0)
+            y = {k: v.unsqueeze(0) for k, v in y.items()}
+        return x, y
 
     def transform_file(self, file: str) -> Tuple[torch.Tensor, dict]:
         """

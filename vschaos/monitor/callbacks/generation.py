@@ -128,21 +128,27 @@ class AudioReconstructionMonitor(Callback):
         originals = []; generations = []
         for f in files:
             root_directory = self.files_path or dataset.root_directory
-            data, meta = dataset.transform_file(f"{root_directory}/{f}")
+            if self.files_path:
+                data, meta = dataset.transform_file(f"{root_directory}/{f}")
+            else:
+                data, meta = dataset.get_data_from_files(f, batch=True)
             if hasattr(model, "input_dim"):
                 data = fit_data(data, model.input_dim, has_batch = False)
             # make batch
             try:
-                original, generation = model.reconstruct(data.unsqueeze(0))
+                original, generation = model.reconstruct((data, meta))
             except:
                 continue
-            original = original[0].cpu()
+            original = original[0][0].cpu()
             generation = generation[0]
             if isinstance(generation, dist.Normal):
                 generation = generation.sample() if self.sample_reconstruction else generation.mean
             generation = generation.cpu()
             originals.append(dataset.invert_transform(original))
             generations.append(dataset.invert_transform(generation))
+        if len(originals) == 0:
+            print('received empty list of tensors during reconstruction. Abort')
+            return None, None
         originals, generations = torch.cat(originals, -1).squeeze(), torch.cat(generations, -1).squeeze()
         return check_mono(originals, normalize=True), check_mono(generations, normalize=True)
 
@@ -188,8 +194,9 @@ class AudioReconstructionMonitor(Callback):
                         if dataset is not None:
                             files = random.choices(dataset.files, k=self.n_files)
                             raw_original, raw_generation = self.reconstruct_file(model, files, dataset)
-                            trainer.logger.experiment.add_audio('original', raw_original, global_step=trainer.current_epoch, sample_rate=dataset.sr)
-                            trainer.logger.experiment.add_audio('generation', raw_generation, global_step=trainer.current_epoch,
+                            if raw_original is not None:
+                                trainer.logger.experiment.add_audio('original', raw_original, global_step=trainer.current_epoch, sample_rate=dataset.sr)
+                                trainer.logger.experiment.add_audio('generation', raw_generation, global_step=trainer.current_epoch,
                                                                 sample_rate=dataset.sr)
 
             print('prior sampling...')

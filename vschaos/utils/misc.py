@@ -417,9 +417,13 @@ class ContinuousList(object):
 def _recursive_to(obj, device):
     if isinstance(obj, dict):
         return {k: _recursive_to(v, device) for k, v in obj.items()}
-    elif isinstance(obj, (list, tuple)):
+    elif isinstance(obj, list):
         return [_recursive_to(o, device) for o in obj]
+    elif isinstance(obj, tuple):
+        return tuple([_recursive_to(o, device) for o in obj])
     elif torch.is_tensor(obj):
         return obj.to(device=device)
+    elif obj is None:
+        return None
     else:
         raise TypeError('type %s not handled by _recursive_to'%type(obj))

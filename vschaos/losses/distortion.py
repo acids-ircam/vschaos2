@@ -1,4 +1,5 @@
 import abc
+from turtle import forward
 from typing import Iterable, List
 import torch, torch.nn, sys, pdb
 sys.path.append('../')
@@ -7,6 +8,7 @@ from vschaos.losses import loss_utils as utils
 from vschaos.utils import checklist
 import vschaos.distributions as dist
 
+eps = torch.finfo(torch.get_default_dtype()).eps
 
 class ReconstructionLoss(Loss):
     def __init__(self, reduction=None):
@@ -51,7 +53,7 @@ class MSE(Loss):
         super().__init__(reduction=reduction)
         self.normalize=normalize
 
-    def forward(self, x, target, drop_detail = False, sample=False, **kwargs):
+    def get_targets(self, x, target, sample=False):
         if isinstance(x, dist.Distribution):
             if sample:
                 if x.has_rsample:
@@ -64,7 +66,11 @@ class MSE(Loss):
                 if isinstance(x, dist.Normal):
                     x = x.mean
                 elif isinstance(x, (dist.Bernoulli, dist.Categorical)):
-                    x = x.probs
+                    x = x.probs 
+        return x, target
+
+    def forward(self, x, target, drop_detail = False, sample=False, **kwargs):
+        x, target = self.get_targets(x, target, sample=sample)
         if self.normalize is not None:
             tens_max = target
             for idx in self.normalize:
@@ -78,6 +84,18 @@ class MSE(Loss):
         else:
             return mse_loss
 
+
+class LogMSE(MSE):
+    def __repr__(self):
+        return "LogMSE()"
+    
+    def forward(self, x, target, sample=False, **kwargs):
+        x, target = self.get_targets(x, target, sample=sample)
+        x = x.clamp(eps, None).log()
+        target = target.clamp(eps, None).log()
+        return super().forward(x, target, sample=sample, **kwargs)
+
+
 class L1(Loss):
     def __repr__(self):
         return "L1()"
@@ -86,7 +104,7 @@ class L1(Loss):
         super().__init__(reduction=reduction)
         self.normalize=normalize
 
-    def forward(self, x, target, drop_detail = False, sample=False, **kwargs):
+    def get_targets(self, x, target, sample=False):
         if isinstance(x, dist.Distribution):
             if sample:
                 if x.has_rsample:
@@ -99,7 +117,11 @@ class L1(Loss):
                 if isinstance(x, dist.Normal):
                     x = x.mean
                 elif isinstance(x, (dist.Bernoulli, dist.Categorical)):
-                    x = x.probs
+                    x = x.probs 
+        return x, target
+
+    def forward(self, x, target, drop_detail = False, sample=False, **kwargs):
+        x, target = self.get_targets(x, target, sample=sample)
         if self.normalize is not None:
             tens_max = target
             for idx in self.normalize:
@@ -112,3 +134,84 @@ class L1(Loss):
             return l1_loss, {"l1": l1_loss.detach().cpu()}
         else:
             return l1_loss
+
+    
+class LogL1(L1):
+    def __repr__(self):
+        return "LogL1()"
+
+    def forward(self, x, target, sample=False, **kwargs):
+        x, target = self.get_targets(x, target, sample=sample)
+        x = x.clamp(eps, None).log()
+        target = target.clamp(eps, None).log()
+        return super().forward(x, target, sample=sample, **kwargs)
+
+def frobenius(mat, axis=-1):
+    return mat.pow(2).sum(axis).sqrt()
+
+class SpectralConvergence(Loss):
+    def __repr__(self):
+        return "SpectralConvergence()"
+
+    def __init__(self, reduction=None):
+        super().__init__(reduction=reduction)
+
+    def get_targets(self, x, target, sample=False):
+        if isinstance(x, dist.Distribution):
+            if sample:
+                if x.has_rsample:
+                    x = x.rsample()
+                else:
+                    if x.grad_fn is not None:
+                        print('[Warning] sampling a tensor in a graph will cut backpropagation' )
+                    x = x.sample()
+            else:
+                if isinstance(x, dist.Normal):
+                    x = x.mean
+                elif isinstance(x, (dist.Bernoulli, dist.Categorical)):
+                    x = x.probs 
+        return x, target
+
+    def forward(self, x, target, sample=False, drop_detail=False, **kwargs):
+        x, target = self.get_targets(x, target, sample=sample)
+        loss = frobenius(x - target) / frobenius(x.abs())
+        loss = self.reduce(loss)
+        if drop_detail:
+            return loss, {'spectral_cv':  loss.detach().cpu()}
+        else:
+            return loss
+
+
+class LogISD(Loss):
+    def __repr__(self):
+        return "LogISD()"
+
+    def __init__(self, reduction=None):
+        super().__init__(reduction=reduction)
+        self.eps = torch.finfo(torch.get_default_dtype()).eps
+
+    def get_targets(self, x, target, sample=False):
+        if isinstance(x, dist.Distribution):
+            if sample:
+                if x.has_rsample:
+                    x = x.rsample()
+                else:
+                    if x.grad_fn is not None:
+                        print('[Warning] sampling a tensor in a graph will cut backpropagation' )
+                    x = x.sample()
+            else:
+                if isinstance(x, dist.Normal):
+                    x = x.mean
+                elif isinstance(x, (dist.Bernoulli, dist.Categorical)):
+                    x = x.probs 
+        return x, target
+
+    def forward(self, x, target, sample=False, drop_detail=False, **kwargs):
+        x, target = self.get_targets(x, target, sample=sample)
+        power_div = (target / x).clamp(self.eps, None)
+        loss = (1 / (2 * torch.pi)) * (power_div - power_div.log() - 1)
+        loss = self.reduce(loss)
+        if drop_detail:
+            return loss, {'log_isd':  loss.detach().cpu()}
+        else:
+            return loss

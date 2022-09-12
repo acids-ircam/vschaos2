@@ -1,5 +1,3 @@
-from calendar import LocaleTextCalendar
-from lib2to3.pytree import convert
 import sys
 sys.path.append('../')
 import torch, torch.nn as nn
@@ -44,6 +42,10 @@ class KLD(Loss):
     def __repr__(self):
         return "KLD()"
 
+    def __init__(self, reduction=None, free_bits = None):
+        super().__init__(reduction)
+        self.free_bits = free_bits
+
     def forward(self, params1: Distribution, params2: Distribution, drop_detail=False, **kwargs) -> torch.Tensor:
         """
         Wrapper for Kullback-Leibler Divergence.
@@ -60,9 +62,17 @@ class KLD(Loss):
             "KLD only works with two distributions"
         params1 = convert_to_torch(params1)
         params2 = convert_to_torch(params2)
-        ld = self.reduce(kl_divergence(params1, params2), reduction=reduction)
+        kld = kl_divergence(params1, params2)
+        if self.free_bits:
+            kld = self.reduce(kld, reduction=reduction)
+            ld = (kld - torch.tensor(self.free_bits, dtype=kld.dtype, device=kld.device)).pow(2)
+            losses = {'kld': self.reduce(kld.detach().cpu(), reduction=self.reduction),
+                      'free_bits_kld': ld.detach().cpu()}
+        else:
+            ld = self.reduce(kld, reduction=reduction)
+            losses = {'kld': ld.detach().cpu()}
         if drop_detail:
-            return ld, {'kld': ld}
+            return ld, losses
         else:
             return ld
 
@@ -141,11 +151,10 @@ class RD(Loss):
 
 # MMD estimation
 
-def l2_kernel(x, y, scale=None):
+def l2_kernel(x, y, scale=1.0):
     x_size = x.size(0)
     y_size = y.size(0)
     dim = x.size(1)
-    scale = scale or dim
     loss = torch.exp(-(x.unsqueeze(1).expand(x_size, y_size, dim) - y.unsqueeze(0).expand(x_size, y_size, dim)).pow(2) / float(scale))
     return loss
 
@@ -162,7 +171,7 @@ class MMD(Loss):
     def __repr__(self):
         return "MMD(kernel=%s)"%self.kernel
 
-    def __init__(self, kernel: Union[Callable, str] = l2_kernel, *args, reduction: bool = None, **kwargs):
+    def __init__(self, kernel: Union[Callable, str] = l2_kernel, *args, reduction: bool = None, kernel_args={}, **kwargs):
         """
         Maximum Mean Discrepency (MMD) performs global distribution matching, in order to regularize q(z) rather that
         q(z|x). Used in Wasserstein Auto-Encoders.
@@ -174,22 +183,23 @@ class MMD(Loss):
             assert kernel in kernel_hash.keys(), "kernel keyword must be %s"%list(kernel_hash.keys())
             kernel = kernel_hash[kernel]
         self.kernel = kernel
+        self.kernel_args = kernel_args
 
     def forward(self, params1: Distribution = None, params2: Distribution = None, drop_detail:bool = False, **kwargs) -> torch.Tensor:
-        assert params1, params2
+        assert params1 is not None, params2 is not None
         reduction = kwargs.get('reduction', self.reduction)
         if isinstance(params1, Distribution):
-            sample1 = params1.sample() if not params1.has_rsample else params1.rsample()
+            params1 = params1.sample() if not params1.has_rsample else params1.rsample()
         if isinstance(params2, Distribution):
-            sample2 = params2.sample() if not params2.has_rsample else params2.rsample()
-        sample1 = sample1.view(-1, sample1.shape[-1])
-        sample2 = sample2.view(-1, sample2.shape[-1])
-        dim = sample1.shape[-1]
+            params2 = params2.sample() if not params2.has_rsample else params2.rsample()
+        params1 = params1.view(-1, params1.shape[-1])
+        params2 = params2.view(-1, params2.shape[-1])
+        dim = params1.shape[-1]
 
-        x_kernel = self.kernel(sample1, sample1) / (dim * (dim - 1))
-        y_kernel = self.kernel(sample2, sample2) / (dim * (dim - 1))
-        xy_kernel = self.kernel(sample1, sample2) / (dim * dim)
-        loss = self.reduce((x_kernel + y_kernel - 2*xy_kernel).sqrt(), reduction)
+        x_kernel = self.kernel(params1, params1, **self.kernel_args) / (dim * (dim - 1))
+        y_kernel = self.kernel(params2, params2, **self.kernel_args) / (dim * (dim - 1))
+        xy_kernel = self.kernel(params1, params2, **self.kernel_args) / (dim * dim)
+        loss = self.reduce((x_kernel + y_kernel - 2*xy_kernel), reduction=reduction)
 
         if drop_detail:
             return loss, {'mmd': loss.detach().cpu()}

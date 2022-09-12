@@ -5,6 +5,7 @@ import torch, torch.nn as nn, sys
 import acids_transforms as at
 
 from vschaos.modules.layers.misc import TimeEmbedding
+from vschaos.modules.dimred import Spherical
 from ..utils import reshape_batch, flatten_batch, checklist
 from .auto_encoders import AutoEncoder
 from typing import Union, Callable, List, Tuple, Dict
@@ -91,7 +92,7 @@ class ScriptableSpectralAutoEncoder(nn.Module):
             assert self.win_length is not None, "use_oa=True but could not retrieve win_length"
             self.overlap_add = at.OverlapAdd(self.win_length, self.hop_length)
             self.transform = self.transform.realtime()
-        self.spectral_transform = self._get_spectral_transform(self.transform)
+        self.spectral_transform_idx = self._get_spectral_transform(self.transform)
         # set sub-modules
         self.encoder = auto_encoder.encoder
         self.encoder_type = auto_encoder.encoder.target_dist
@@ -106,10 +107,11 @@ class ScriptableSpectralAutoEncoder(nn.Module):
         if hasattr(auto_encoder, "prediction_modules"):
             self.prediction_modules = auto_encoder.prediction_modules
         # set dimensionality reduction
+        self.dimreds = nn.ModuleDict()
         if hasattr(auto_encoder, "dimreds"):
-            self.dimreds = nn.ModuleDict()
             for k, v in auto_encoder.dimreds.items():
                 self.dimreds[k] = DimredWrapper(v)
+        self.dimreds['spherical'] = Spherical()
         if use_dimred is None:
             use_dimred = auto_encoder.config.latent.dim >= 8
         self.use_dimred = use_dimred
@@ -242,15 +244,21 @@ class ScriptableSpectralAutoEncoder(nn.Module):
     # inversion mode
     @torch.jit.export
     def get_inversion_mode(self) -> str:
-        return self.spectral_transform.inversion_mode
+        for i, t in enumerate(self.transform.transforms):
+            if i == self.spectral_transform_idx:
+                if hasattr(t, "inversion_mode"):
+                    return t.inversion_mode
+        return "no inversion mode"
+            
         
     @torch.jit.export
     def set_inversion_mode(self, inversion_mode: str) -> int:
-        if not inversion_mode in self.spectral_transform.get_inversion_modes():
-            return -1
-        else:
-            self.spectral_transform.set_inversion_mode(inversion_mode)
-            return 0
+        for i, t in enumerate(self.transform.transforms):
+            if i == self.spectral_transform_idx:
+                if hasattr(t, "inversion_mode"):
+                    t.inversion_mode = inversion_mode
+                    return 0
+        return -1
 
     # temperature
     @torch.jit.export
@@ -333,10 +341,13 @@ class ScriptableSpectralAutoEncoder(nn.Module):
         for t in self._forward_ordered_tasks:
             if t in self._encoder_ordered_tasks:
                 x_splitted[current_id] = self.transform_label(x_splitted[current_id], t).float()
-            encoder_input.append(x_splitted[current_id])
+                encoder_input.append(x_splitted[current_id])
             current_id += 1
         x = x_splitted[0] 
-        y = torch.cat(encoder_input, -2)
+        if len(encoder_input) > 0:
+            y = torch.cat(encoder_input, -2)
+        else:
+            y = torch.tensor(0)
         return x, y
 
     def get_encoder_input(self, x: torch.Tensor):
@@ -360,7 +371,7 @@ class ScriptableSpectralAutoEncoder(nn.Module):
 
     def get_forward_input(self, x: torch.Tensor):
         y = torch.tensor(0)
-        fot: List[str] = self._forward_ordered_tasks
+        fot: List[str] = self._encoder_ordered_tasks
         if len(fot) > 0:
             x, y = self.split_forward_input(x)
         if self.transform is not None:
@@ -373,6 +384,8 @@ class ScriptableSpectralAutoEncoder(nn.Module):
         y = torch.tensor(0)
         predicted_y = torch.empty(0)
         predicted_y_list = []
+        if self.use_dimred:
+            z = self.unproject_z(z)
         if len(self._forward_ordered_tasks) > 0:
             splits = (self.input_shape[0], ) + (1,) * (x.size(-2) - self.input_shape[0])
             x_splitted = list(x.split(splits, -2))
@@ -381,7 +394,7 @@ class ScriptableSpectralAutoEncoder(nn.Module):
             for t in self._decoder_ordered_tasks:
                 current_meta = torch.zeros(0)
                 if t in self._forward_ordered_tasks:
-                    current_meta = self.transform_label(x_splitted[current_id], t)
+                    current_meta = self.transform_label(x_splitted[current_id][..., 0, :], t)
                     current_id += 1
                 elif t in self.prediction_modules:
                     predicted_labels = self.get_prediction(z, t)
@@ -389,11 +402,9 @@ class ScriptableSpectralAutoEncoder(nn.Module):
                     current_meta = self.transform_label(predicted_labels, t)
                 metadatas.append(current_meta)
             y = torch.cat(metadatas, -1)
-        if self.use_dimred:
-            z = self.unproject_z(z)
-        if len(self._forward_ordered_tasks) > 0:
             z = torch.cat([z, y], -1)
-            predicted_y = torch.cat(predicted_y_list, -1)
+            if len(predicted_y) > 0:
+                predicted_y = torch.cat(predicted_y_list, -1)
         return z, predicted_y
 
     def get_prediction(self, z: torch.Tensor, task: str) -> torch.Tensor:
@@ -462,11 +473,10 @@ class ScriptableSpectralAutoEncoder(nn.Module):
         if self.use_oa:
             x = self.overlap_add(x)
             outs = []
-            #TODO batch index -2!!!
             for i in range(x.size(-2)):
                 x_tmp = x[..., i, :]
-                x_tmp = self.get_forward_input(x_tmp)
-                z = self.encoder(x_tmp)
+                x_enc = self.get_forward_input(x_tmp)
+                z = self.encoder(x_enc)
                 decoder_input = z.mean + self.temperature * z.stddev
                 decoder_input, predicted_outs= self.get_forward_latent(x_tmp, decoder_input)
                 x_rec = self.decoder(decoder_input).mean
@@ -500,7 +510,7 @@ class ScriptableSpectralAutoEncoder(nn.Module):
         if idx is None:
             return None
         else:
-            return transform.transforms[idx]
+            return idx
     
     def print_params(self):
         # forward
