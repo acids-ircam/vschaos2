@@ -149,7 +149,10 @@ class AudioReconstructionMonitor(Callback):
         if len(originals) == 0:
             print('received empty list of tensors during reconstruction. Abort')
             return None, None
-        originals, generations = torch.cat(originals, -1).squeeze(), torch.cat(generations, -1).squeeze()
+        try:
+            originals, generations = torch.cat(originals, -1).squeeze(), torch.cat(generations, -1).squeeze()
+        except:
+            pdb.set_trace()
         return check_mono(originals, normalize=True), check_mono(generations, normalize=True)
 
     def generate_trajectories(self, dataset, model, path):

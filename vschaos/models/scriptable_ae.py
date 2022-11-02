@@ -1,11 +1,10 @@
 from argparse import ArgumentParser
-from importlib.metadata import metadata
-from turtle import forward
 import torch, torch.nn as nn, sys
 import acids_transforms as at
 
 from vschaos.modules.layers.misc import TimeEmbedding
 from vschaos.modules.dimred import Spherical
+from vschaos.distributions import Distribution
 from ..utils import reshape_batch, flatten_batch, checklist
 from .auto_encoders import AutoEncoder
 from typing import Union, Callable, List, Tuple, Dict
@@ -452,7 +451,9 @@ class ScriptableSpectralAutoEncoder(nn.Module):
         if self.export_for_nn:
             z = z.transpose(-2, -1)
         z = self.get_decoder_input(z)
-        x = self.decoder(z).mean
+        x = self.decoder(z)
+        if isinstance(x, Distribution):
+            x = x.mean
         if self.use_oa:
             outs = []
             iter_dim = -(len(self.encoder.input_shape) + 1)
@@ -479,7 +480,9 @@ class ScriptableSpectralAutoEncoder(nn.Module):
                 z = self.encoder(x_enc)
                 decoder_input = z.mean + self.temperature * z.stddev
                 decoder_input, predicted_outs= self.get_forward_latent(x_tmp, decoder_input)
-                x_rec = self.decoder(decoder_input).mean
+                x_rec = self.decoder(decoder_input)
+                if isinstance(x_rec, Distribution):
+                    x_rec = x_rec.mean
                 if self.transform is not None:
                     x_rec = self.transform.invert(x_rec)
                 if predicted_outs.size(0) != 0:
@@ -495,7 +498,9 @@ class ScriptableSpectralAutoEncoder(nn.Module):
                 decoder_input = z.sample()
             else:
                 decoder_input = z.mean
-            outs = self.decoder(decoder_input).mean
+            outs = self.decoder(decoder_input)
+            if isinstance(outs, Distribution):
+                outs = outs.mean
             if self.transform is not None:
                 outs = self.transform.invert(outs)
         return outs

@@ -614,9 +614,10 @@ class GatedConvLayer(ConvLayer):
             out = self.norm(out)
         if mod_closure is not None:
             out = mod_closure(out)
+        out = out * torch.sigmoid(gate_out)
         if hasattr(self, "activation"):
             out = self.activation(out)
-        return out * torch.sigmoid(gate_out)
+        return 
 
 
 class GatedDeconvLayer(DeconvLayer):

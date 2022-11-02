@@ -51,7 +51,7 @@ class ConvEncoder(nn.Module):
         self.input_shape = checksize(config.get('input_shape'))
         self.mode = config.get('mode', "forward")
         self.channels = checklist(config.channels)
-        self.n_layers = len(self.channels) - 1
+        self.n_layers = len(self.channels)
         self.kernel_size = checklist(config.get('kernel_size', 7), n=self.n_layers)
         self.dilation = checklist(config.get('dilation', 1), n=self.n_layers)
         self.padding = checklist(config.get('padding'), n=self.n_layers)
@@ -82,7 +82,7 @@ class ConvEncoder(nn.Module):
             self.target_dist = checkdist(self.target_dist)
             if init_modules:
                 self.dist_module = mlp_dist_hash[self.target_dist](out_nnlin=self.out_nnlin)
-            self.channels[-1] *= self.dist_module.required_dim_upsampling
+            # self.channels[-1] *= self.dist_module.required_dim_upsampling
         else:
             if init_modules:
                 self.dist_module = self.out_nnlin if self.out_nnlin is not None else None
@@ -95,27 +95,28 @@ class ConvEncoder(nn.Module):
 
     def _init_conv_modules(self):
         modules = []
+        preconv_args = {'kernel_size': self.kernel_size[0], 'dilation': self.dilation[0], 'stride': self.stride[0], 'norm': self.norm[0], 
+                        'dropout':self.dropout[0], 'nnlin': self.nnlin[0], 'dim': self.dim, **self.block_args[0]}
         if self.multi_preconv:
-            self.pre_conv = nn.ModuleList([layers.conv_hash['conv'][self.dim](self.input_shape[0], c, 1) for c in self.channels])
+            Layer = getattr(layers, self.Layer[0])
+            self.pre_conv = nn.ModuleList([Layer([self.input_shape[0], c], **preconv_args) for c in self.channels])
         else:
-            self.pre_conv = nn.ModuleList([layers.conv_hash['conv'][self.dim](self.input_shape[0], self.channels[0], 1)])
-        for n in range(self.n_layers):
-            Layer = getattr(layers, self.Layer[n])
-            if n > 0 and self.mode == "skip":
-                in_channels, out_channels = self.channels[n], self.channels[n + 1]
-            else:
-                in_channels, out_channels = self.channels[n], self.channels[n + 1]
+            Layer = getattr(layers, self.Layer[0])
+            self.pre_conv = nn.ModuleList([Layer([self.input_shape[0], self.channels[0]], **preconv_args)])
+        for n in range(self.n_layers-1):
+            Layer = getattr(layers, self.Layer[n+1])
+            in_channels, out_channels = self.channels[n], self.channels[n + 1]
             current_layer = Layer([in_channels, out_channels],
-                                  kernel_size=self.kernel_size[n],
-                                  dilation=self.dilation[n],
-                                  padding=self.padding[n],
+                                  kernel_size=self.kernel_size[n+1],
+                                  dilation=self.dilation[n+1],
+                                  padding=self.padding[n+1],
                                   dim=self.dim,
-                                  stride=self.stride[n],
-                                  norm=self.norm[n],
-                                  dropout=self.dropout[n],
+                                  stride=self.stride[n+1],
+                                  norm=self.norm[n+1],
+                                  dropout=self.dropout[n+1],
                                   bias=self.bias,
-                                  nnlin=self.nnlin[n],
-                                  **self.block_args[n])
+                                  nnlin=self.nnlin[n+1],
+                                  **self.block_args[n+1])
             modules.append(current_layer)
         self.conv_modules = nn.ModuleList(modules)
 
@@ -123,7 +124,8 @@ class ConvEncoder(nn.Module):
         self.flatten_module = None
         if self.reshape_method in ["flatten", "pgan", "channel"]:
             current_shape = np.array(self.input_shape[1:])
-            for c in self.conv_modules:
+            conv_modules = [self.pre_conv[0]] + list(self.conv_modules)
+            for c in conv_modules:
                 current_shape = c.output_shape(current_shape)
             target_shape = int(checklist(self.target_shape)[0])
             if self.target_dist == dist.Normal:

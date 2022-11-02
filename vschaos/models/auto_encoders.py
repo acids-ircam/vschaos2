@@ -223,6 +223,7 @@ class AutoEncoder(Model):
         """encodes and decodes an incoming tensor."""
         if isinstance(x, (tuple, list)):
             x, y = x
+
         else:
             x, y = x, None
         # encoding
@@ -245,7 +246,9 @@ class AutoEncoder(Model):
             if "encoder" in self.conditionings[k].target:
                 assert y is not None, "model is conditioned; please explicit conditioning with the y keyword"
                 assert y.get(k) is not None, "missing information for task %s"%k
-                cond = v(y[k])
+                n_classes = self.conditionings[k]['dim']
+                y[k] = torch.where(y[k].isnan(), torch.randint_like(y[k], 0, n_classes), y[k])
+                cond = v(y[k].long())
                 if len(self.input_shape) == 1:
                     x = torch.cat([x, cond], 0)
                 else:
@@ -260,7 +263,9 @@ class AutoEncoder(Model):
             if "decoder" in self.conditionings[k].target:
                 assert y is not None, "model is conditioned; please explicit conditioning with the y keyword"
                 assert y.get(k) is not None, "missing information for task %s"%k
-                cond = v(y[k])
+                n_classes = self.conditionings[k]['dim']
+                y[k] = torch.where(y[k].isnan(), torch.randint_like(y[k], 0, n_classes), y[k])                
+                cond = v(y[k].long())
                 if len(self.decoder.input_shape) == 1:
                     z = torch.cat([z, cond], -1)
                 else:
@@ -382,10 +387,11 @@ class AutoEncoder(Model):
             z = torch.randn((n_samples, self.latent.dim), device=self.device) * t
             decoder_input = self.get_decoder_input(z, y)
             x = self.decode(decoder_input)
-            if sample:
-                x = x.sample()
-            else:
-                x = x.mean
+            if not torch.is_tensor(x):
+                if sample:
+                    x = x.sample()
+                else:
+                    x = x.mean
             generations.append(x)
         return torch.stack(generations, 1)
 

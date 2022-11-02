@@ -1,4 +1,4 @@
-import  pdb, os
+import  pdb, os, argparse
 import logging
 import torch, pytorch_lightning as pl, hydra
 from pytorch_lightning.loggers import TensorBoardLogger
@@ -25,11 +25,12 @@ else:
     use_gpu = 0
 
 @hydra.main(config_path="configs", config_name="config", version_base="1.2")
-def main(config: DictConfig):
+def main(config: DictConfig, ckpt_path=None):
     OmegaConf.set_struct(config, False)
     # import data
     config.data.loader['num_workers'] = config.data.loader.get('num_workers', os.cpu_count())
     data_module = getattr(data, config.data.module)(config.data)
+    data_module.dataset[0]
     # import model
     config.model.input_shape = data_module.shape
     model = getattr(models, config.model.type)(config.model)

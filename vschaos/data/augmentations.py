@@ -119,7 +119,7 @@ class Normal(AudioAugmentation):
             noise_shape[i] = x.shape[i]
         noise = self.amp_range * torch.randn(noise_shape, device=x.device, dtype=x.dtype)
         if self.mode == "amplitude":
-            x = x * noise
+            x = x * (1 + noise)
         elif self.mode == "bias":
             x = x + noise
         if self.clamp is not None:

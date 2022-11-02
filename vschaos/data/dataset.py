@@ -657,7 +657,8 @@ class AudioDataset(Dataset):
                 if self.metadata[k][i] is None:
                     continue
                 elif isinstance(self.metadata[k][i], ContinuousList):
-                    metadata[k].extend(self.metadata[k][i]["time"])
+                    time = self.metadata['time'][i]
+                    metadata[k].extend(self.metadata[k][i][time])
                 elif isinstance(self.metadata[k][i], (np.ndarray)) or torch.is_tensor(self.metadata[k][i]):
                     if self.metadata[k][i].shape[0] == len(current_data):
                         metadata[k].extend(self.metadata[k][i])

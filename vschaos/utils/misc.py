@@ -164,6 +164,12 @@ def trace_distribution(distribution, name="", scatter_dim=False):
             return {**{f'{name}probs/dim_{i}': distribution.probs[..., i] for i in range(distribution.probs.shape[-1])}}
         else:
             return {f"{name}probs": distribution.probs}
+    elif torch.is_tensor(distribution):
+        return {f'{name}/dim_{i}': distribution[..., i] for i in range(distribution.shape[-1])}
+    else:
+        raise TypeError()
+
+
 
 def get_shape_from_ratio(n_item, target_ratio):
     i = np.ceil(np.sqrt(n_item / np.prod(target_ratio)))

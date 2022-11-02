@@ -6,7 +6,7 @@ from .loss import Loss, LossContainer
 from . import distortion
 def get_distortion_loss(config):
     if isinstance(config, ListConfig):
-        losses =[get_distortion_loss(l) for l in config]
+        losses = [get_distortion_loss(l) for l in config]
         return sum(losses[1:], losses[0])
     else:
         loss_type = config.get('type')

@@ -61,7 +61,7 @@ class AudioDataModule(LightningDataModule):
                 dataset.import_data(write_transforms=True, save_transform_as=name,
                                     force=transform_args.get('force', False), min_len=self.dataset_args.get('min_length'))
         else:
-            dataset.import_data(min_len=self.dataset_args.get('min_length'))
+            dataset.import_data(min_len=self.dataset_args.get('min_length'), scale=False)
         # flatten data in case
         if dataset_args.get('flatten') is not None:
             dataset.flatten_data(int(dataset_args['flatten']))
