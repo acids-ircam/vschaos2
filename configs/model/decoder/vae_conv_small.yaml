@@ -2,10 +2,10 @@ type: DeconvEncoder
 args:
   layer: GatedDeconvLayer
   nnlin: SiLU
-  channels: [8,16,32,64]
-  dilation: [1,1,1,1]
-  stride: [4,2,2,1]
-  kernel_size: [9,7,5,3]
+  channels: [8, 16, 32]
+  dilation: [1,1,1]
+  stride: [4,2,1]
+  kernel_size: [7,5,3]
   norm: batch
   # target_dist: Normal
   final_conv: 1

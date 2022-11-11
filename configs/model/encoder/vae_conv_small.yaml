@@ -1,0 +1,10 @@
+type: ConvEncoder
+args:
+  channels: [32, 16, 8]
+  dilation: [1,1,1]
+  stride: [1,2,4]
+  kernel_size: [3,5,7]
+  nnlin: SiLU 
+  bias: True
+  target_dist: Normal
+  norm: batch
