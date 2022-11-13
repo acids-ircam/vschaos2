@@ -46,7 +46,7 @@ def parse_folder(d, valid_exts):
 
 type_hash = {"int":int, "str": str, "float": float}
 def get_callback_from_config(config):
-    callback_name = config.name
+    callback_name = config.get('name', 'read_metadata')
     callback_type = type_hash[config.get('type', 'int')]
     return getattr(am, callback_name)(callback_type)
 
@@ -557,10 +557,7 @@ class AudioDataset(Dataset):
 
         metadata = {}
         for t in tasks:
-            if t in self.metadata_callbacks:
-                callback = get_callback_from_config(self.metadata_callbacks[t])
-            else:
-                callback = am.metadata_hash.get(t)
+            callback = get_callback_from_config(self.metadata_callbacks.get(t, {}))
             if callback is None:
                 print('[Warning] could not find callback for task %s'%t)
                 continue

@@ -1,6 +1,9 @@
+module: AudioDataModule
+
 dataset:
   # single spectral flames can be flattened, of picked random in one file. 
   # to activate the second case, comment l.4 & uncomment l.5-8
+  root: ???
   flatten: -2
   # sequence:
   #   length: 1
@@ -15,7 +18,7 @@ transforms:
   #   and transforms that are applied during batch loading.
   pre_transforms:
     - {type: Mono, args: {squeeze: 1}}
-    - {type: DGT, args: {nfft: &n_fft 1024, hop_size: 256}}
+    - {type: DGT, args: {n_fft: &n_fft 1024, hop_length: 256}}
   transforms: 
     - {type: Magnitude, args: {contrast: log1p, n_fft: *n_fft, mel: 0, mode: unipolar}}
     - {type: Unsqueeze, args: {dim: -2}}

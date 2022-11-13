@@ -32,8 +32,8 @@ def get_root_dir(dirpath, name):
 
 
 def checkdist(obj):
-    if obj is None:
-        return obj
+    if (obj is None) or (obj == "none") or (obj == "None"):
+        return None
     elif isinstance(obj, str):
         return getattr(dist, obj)
     elif issubclass(obj, dist.Distribution):

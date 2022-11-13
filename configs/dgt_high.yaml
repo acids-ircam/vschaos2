@@ -16,12 +16,11 @@ rundir: "${dir:runtime}/saves/${name}"
 # Defaults configuration, that can be overriden in commande line arguments
 defaults:
   - data:
-    - defaults
-    - dataset/audio
-    - transforms/dgt-512
+  - data:
+    - dgt-1024-mag
   - model:
-    - encoder/vae_conv_small
-    - decoder/vae_conv_small
+    - encoder/vae_conv_large
+    - decoder/vae_conv_large
   - callbacks: audio_defaults
   - _self_
 
@@ -38,9 +37,10 @@ data:
 
 # here we add specific parameters for the decoder's output (softplus + normal distribution).
 model:
+  type: AutoEncoder
   latent:
     dist: Normal
-    dim: 4
+    dim: 8
   decoder:
     args:
       # we fill the out_nnlin to enforce the positivity of the decoder output

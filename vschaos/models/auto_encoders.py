@@ -1,6 +1,5 @@
-import numpy as np, torch, torch.nn as nn, sys
+import numpy as np, torch, torch.nn as nn
 from omegaconf import OmegaConf
-from sklearn import decomposition 
 from acids_transforms import OneHot
 from .. import distributions as dist
 from ..models.model import Model, ConfigType

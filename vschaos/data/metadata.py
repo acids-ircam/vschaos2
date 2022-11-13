@@ -6,6 +6,17 @@ from fsspec import Callback
 sys.path.append('../')
 from vschaos.utils.misc import ContinuousList
 
+
+def read_metadata(cast=str):
+    def closure(meta, current_path=None):
+        file_path = join(current_path, "tracks", meta)
+        if os.path.isfile(file_path):
+            return read_multi_metadata(cast)(file_path, current_path=current_path)
+        else:
+            return read_single_metadata(cast)(meta)
+    return closure 
+
+
 def read_single_metadata(cast=str):
     def closure(meta, **kwargs):
         if cast is None:
@@ -14,8 +25,9 @@ def read_single_metadata(cast=str):
             return cast(meta)
     return closure
 
+
 def read_multi_metadata(type_class):
-    def closure(filename, cast=None, current_path=None):
+    def closure(filename, current_path=None):
         assert current_path is not None
         assert isfile(join(current_path, 'tracks', filename))
         file_path = join(current_path, "tracks", filename)

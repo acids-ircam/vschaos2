@@ -1,13 +1,11 @@
 from argparse import ArgumentParser
-import torch, torch.nn as nn, sys
-import acids_transforms as at
-
-from vschaos.modules.layers.misc import TimeEmbedding
+import torch, torch.nn as nn
+import nn_tilde, acids_transforms as at
 from vschaos.modules.dimred import Spherical
 from vschaos.distributions import Distribution
 from ..utils import reshape_batch, flatten_batch, checklist
 from .auto_encoders import AutoEncoder
-from typing import Union, Callable, List, Tuple, Dict
+from typing import Union, Callable, List, Tuple
 
 TYPE_HASH = {
     bool: 0,
@@ -71,15 +69,23 @@ class DimredWrapper(nn.Module):
     def invert(self, x: torch.Tensor):
         return self.dimred_module.invert(x)
 
-class ScriptableSpectralAutoEncoder(nn.Module):
-    def __init__(self, auto_encoder: AutoEncoder, transform: Union[Callable, None] = None, 
-                 use_oa: bool = True, win_length: int = None, hop_length: int = None,
-                 inversion_mode: str = "keep_input",
-                 use_dimred: bool = None, export_for_nn: bool = True):
+class ScriptableSpectralAutoEncoder(nn_tilde.Module):
+    def __init__(self, 
+                auto_encoder: AutoEncoder,
+                transform: Union[Callable, None] = None, 
+                use_oa: bool = True,
+                win_length: int = None,
+                hop_length: int = None,
+                inversion_mode: str = "keep_input",
+                use_dimred: bool = None,
+                export_for_nn: bool = True):
+
         super().__init__()
+        # Main parameters
         self.input_shape = list(auto_encoder.input_shape)
         self.latent_dim = int(auto_encoder.config.latent.dim)
-        # Init model subpparts
+
+        # Init transforms
         self.transform = transform
         if transform is not None:
             self.win_length, self.hop_length = retrieve_oaparams_from_transform(transform, inversion_mode=inversion_mode)
@@ -92,20 +98,25 @@ class ScriptableSpectralAutoEncoder(nn.Module):
             self.overlap_add = at.OverlapAdd(self.win_length, self.hop_length)
             self.transform = self.transform.realtime()
         self.spectral_transform_idx = self._get_spectral_transform(self.transform)
-        # set sub-modules
+
+        # Init encoder & decoders
         self.encoder = auto_encoder.encoder
         self.encoder_type = auto_encoder.encoder.target_dist
         self.decoder = auto_encoder.decoder
         self.decoder_type = auto_encoder.encoder.target_dist
-        # set conditionings
+        
+        # Init conditionings
         self.conditionings = auto_encoder.conditionings
         self.concat_embeddings = nn.ModuleDict()
         for task, embedding in auto_encoder.concat_embeddings.items():
             self.concat_embeddings[task] = EmbeddingWrapper(embedding)
         self.prediction_modules = nn.ModuleDict()
+
+        # Init prediction modules
         if hasattr(auto_encoder, "prediction_modules"):
             self.prediction_modules = auto_encoder.prediction_modules
-        # set dimensionality reduction
+
+        # Init dimensionality reduction
         self.dimreds = nn.ModuleDict()
         if hasattr(auto_encoder, "dimreds"):
             for k, v in auto_encoder.dimreds.items():
@@ -114,13 +125,17 @@ class ScriptableSpectralAutoEncoder(nn.Module):
         if use_dimred is None:
             use_dimred = auto_encoder.config.latent.dim >= 8
         self.use_dimred = use_dimred
+
         # set intern buffers
         self._set_buffers(auto_encoder)
+
         # set nn~ parameters
         self._decode_available = True
         self._encode_available = True
         self._forward_available = True
         self.export_for_nn = export_for_nn
+
+        # set parameters & attributes
         self._set_params(auto_encoder)
         self._set_attributes(auto_encoder)
 

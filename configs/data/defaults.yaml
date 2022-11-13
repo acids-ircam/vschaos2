@@ -1,6 +1,3 @@
 defaults:
-  - dataset: audio
-  - transforms: dgt-1024
-  - _self_
+  - dgt-1024-mag
 
-module: AudioDataModule

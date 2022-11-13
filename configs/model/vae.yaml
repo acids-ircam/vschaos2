@@ -1,8 +1,0 @@
-defaults:
-  - encoder/vae_conv_mid
-  - decoder/vae_conv_mid
-
-type: AutoEncoder
-latent:
-  dist: Normal
-  dim: 16
