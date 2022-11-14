@@ -4,10 +4,22 @@ from acids_transforms import OneHot
 from .. import distributions as dist
 from ..models.model import Model, ConfigType
 from ..modules import encoders, TimeEmbedding, dimred
-from ..utils import checklist, trace_distribution 
-from ..utils.misc import _recursive_to
+from ..utils.misc import checklist, trace_distribution, _recursive_to
 from ..losses import get_regularization_loss, get_distortion_loss, priors
 from typing import Dict, Union
+
+
+def dist_select(distrib, idx, dim=0):
+    if torch.is_tensor(distrib):
+        return distrib.index_select(dim, idx)
+    if isinstance(distrib, dist.Normal):
+        return dist.Normal(distrib.mean.index_select(dim, idx), distrib.stddev.index_select(dim, idx))
+    elif isinstance(distrib, (dist.Bernoulli, dist.Categorical)):
+        return type(distrib)(probs=distrib.probs.index_select(dim, idx))
+    else:
+        raise RuntimeError('dist_select does not handle error : %s'%type(distrib))
+
+
 
 
 class AutoEncoder(Model):
@@ -41,39 +53,36 @@ class AutoEncoder(Model):
         concat_embeddings = {}
         self.conditionings = {}
         if config.get('conditioning') is not None:
-            assert config.conditioning.get('tasks') is not None, "conditioning need the tasks keyword argument"
             decoder_cat_conds = {}
-            for i, t in enumerate(config.conditioning.tasks):
-                config.conditioning.tasks[i]['target'] = checklist(config.conditioning.tasks[i].get('target', ['decoder']))
-                config.conditioning.tasks[i]['mode'] = config.conditioning.tasks[i].get('mode', 'cat')
-                embedding_type = t.get('embedding', "OneHot")
+            for task_name, task_config in config.conditioning.items():
+                config.conditioning[task_name]['target'] = checklist(config.conditioning[task_name].get('target', ['decoder']))
+                config.conditioning[task_name]['mode'] = config.conditioning[task_name].get('mode', 'cat')
+                embedding_type = task_config.get('embedding', "OneHot")
                 if (embedding_type == "OneHot"):
-                    concat_embeddings[t['name']] = OneHot(n_classes=t['dim'])
-                    if "decoder" in t['target']:
-                        decoder_cat_conds[t['name']] = t['dim']
+                    concat_embeddings[task_name] = OneHot(n_classes=task_config['dim'])
+                    if "decoder" in task_config['target']:
+                        decoder_cat_conds[task_name] = task_config['dim']
                 elif (embedding_type == "Embedding"):
-                    concat_embeddings[t['name']] = nn.Embedding(t['dim'], t.get('out_dim', 16), **t.get('args', {}))
-                    if "decoder" in t['target']:
-                        decoder_cat_conds[t['name']] = t['dim']
+                    concat_embeddings[task_name] = nn.Embedding(task_config['dim'], task_config.get('out_dim', 16), **task_config.get('args', {}))
+                    if "decoder" in task_config['target']:
+                        decoder_cat_conds[task_name] = task_config['dim']
                 elif (embedding_type == "TimeEmbedding"):
-                    concat_embeddings[t['name']] = TimeEmbedding(t['dim'], **t.get('args', {}))
-                    if "decoder" in t['target']:
-                        decoder_cat_conds[t['name']] = 1
-                self.conditionings[t['name']] = t
-            if config.conditioning.get('predictor') and len(decoder_cat_conds) > 0:
-                prediction_modules = {}
-                config.conditioning.predictor.tasks = config.conditioning.predictor.get('tasks', list(concat_embeddings.keys()))
-                for cond_name in config.conditioning.predictor.tasks:
-                    prediction_module_type = getattr(encoders, config.conditioning.predictor.get('type', 'MLPEncoder'))
-                    config.conditioning.predictor.args.input_shape = config.latent.dim
-                    if isinstance(concat_embeddings[cond_name], TimeEmbedding):
-                        config.conditioning.predictor.args.target_shape = 1
-                    else:
-                        config.conditioning.predictor.args.target_shape = decoder_cat_conds[cond_name]
-                    prediction_modules[cond_name] = prediction_module_type(config.conditioning.predictor.get('args',{}))
-                self.prediction_modules = nn.ModuleDict(prediction_modules)
-
+                    concat_embeddings[task_name] = TimeEmbedding(task_config['dim'], **task_config.get('args', {}))
+                    if "decoder" in task_config['target']:
+                        decoder_cat_conds[task_config['name']] = 1
+                self.conditionings[task_name] = task_config
         self.concat_embeddings = nn.ModuleDict(concat_embeddings)
+
+        # prediction parameters
+        if config.get('prediction'):# and len(decoder_cat_conds) > 0:
+            prediction_modules = {}
+            for pred_task, pred_config in config.prediction.items():
+                prediction_module_type = getattr(encoders, pred_config.get('type', 'MLPEncoder'))
+                pred_config.args = pred_config.get('args', {})
+                pred_config.args.input_shape = config.latent.dim
+                pred_config.args.target_shape = pred_config['dim']
+                prediction_modules[pred_task] = prediction_module_type(pred_config.get('args',{}))
+            self.prediction_modules = nn.ModuleDict(prediction_modules)
             
         # encoder architecture
         config.encoder = config.get('encoder')
@@ -122,7 +131,7 @@ class AutoEncoder(Model):
         if self.config.get('conditioning') is None:
             return input_shape
         concat_dims = []
-        for t in self.config.conditioning.tasks:
+        for t in self.config.conditioning.values():
             if "encoder" in t.get('target'):
                 embedding_type = t.get('embedding', "OneHot")
                 if (embedding_type == "OneHot") or (embedding_type == "TimeEmbedding") :
@@ -139,7 +148,7 @@ class AutoEncoder(Model):
         if self.config.get('conditioning') is None:
             return latent_dim
         concat_dims = []
-        for t in self.config.conditioning.tasks:
+        for t in self.config.conditioning.values():
             if "decoder" in t.get('target'):
                 embedding_type = t.get('embedding', "OneHot")
                 if (embedding_type == "OneHot") or (embedding_type == "TimeEmbedding") :
@@ -200,15 +209,17 @@ class AutoEncoder(Model):
 
     def predict(self, z: torch.Tensor, y: Dict[str, torch.Tensor] = None):
         if not hasattr(self, "prediction_modules"):
-            return y, None
+            return {}, None
         y_params = {}
-        y_out = {} if y is None else y
+        y_out = dict(y)
         for task_name, predictor in self.prediction_modules.items():
             prediction_out = predictor(z)
             y_params[task_name] = prediction_out
-            if y is not None:
+            if isinstance(prediction_out, dist.Distribution):
                 y_out[task_name] = prediction_out.sample()
-        return y_out, y_params
+            else:
+                y_out[task_name] = prediction_out
+        return y_params, y_out
 
     def reinforce(self, x, z, mode="forward"):
         """callback used for adversarial reinforcement"""
@@ -217,37 +228,14 @@ class AutoEncoder(Model):
         elif mode == "latent":
             return self.decode(z)
 
-    @torch.jit.export
-    def full_forward(self, x: torch.Tensor, batch_idx: int=None,  sample: bool=True) -> Dict:
-        """encodes and decodes an incoming tensor."""
-        if isinstance(x, (tuple, list)):
-            x, y = x
-
-        else:
-            x, y = x, None
-        # encoding
-        encoder_input = self.get_encoder_input(x, y=y)
-        z_params = self.encoder(encoder_input)
-        # sampling
-        if sample:
-            z = self.sample(z_params)
-        else:
-            z = z_params.mean
-        # predicting
-        y, y_params = self.predict(z=z, y=y)
-        # decoding
-        decoder_input = self.get_decoder_input(z, y=y)
-        x_hat = self.decoder(decoder_input)
-        return x_hat, z_params, z, y_params, y
-
     def get_encoder_input(self, x: torch.Tensor, y: Dict[str, torch.Tensor]=None):
         for k, v in self.concat_embeddings.items():
             if "encoder" in self.conditionings[k].target:
                 assert y is not None, "model is conditioned; please explicit conditioning with the y keyword"
                 assert y.get(k) is not None, "missing information for task %s"%k
                 n_classes = self.conditionings[k]['dim']
-                y[k] = torch.where(y[k].isnan(), torch.randint_like(y[k], 0, n_classes), y[k])
-                cond = v(y[k].long())
+                cond = torch.where(y[k].isnan(), torch.randint_like(y[k], 0, n_classes), y[k])
+                cond = v(cond.long())
                 if len(self.input_shape) == 1:
                     x = torch.cat([x, cond], 0)
                 else:
@@ -263,8 +251,8 @@ class AutoEncoder(Model):
                 assert y is not None, "model is conditioned; please explicit conditioning with the y keyword"
                 assert y.get(k) is not None, "missing information for task %s"%k
                 n_classes = self.conditionings[k]['dim']
-                y[k] = torch.where(y[k].isnan(), torch.randint_like(y[k], 0, n_classes), y[k])                
-                cond = v(y[k].long())
+                cond = torch.where(y[k].isnan(), torch.randint_like(y[k], 0, n_classes), y[k])                
+                cond = v(cond.long())
                 if len(self.decoder.input_shape) == 1:
                     z = torch.cat([z, cond], -1)
                 else:
@@ -274,29 +262,30 @@ class AutoEncoder(Model):
                     z = torch.cat([z, cond], dim=-(len(self.input_shape)))
         return z
 
-    def trace(self, x: torch.Tensor, sample: bool = False):
-        trace_model = {'encoder': {}, 'decoder' : {}}
+    @torch.jit.export
+    def full_forward(self, x: torch.Tensor, batch_idx: int=None,  sample: bool=True, use_predictions = True) -> Dict:
+        """encodes and decodes an incoming tensor."""
         if isinstance(x, (tuple, list)):
             x, y = x
-        x = self.get_encoder_input(x, y=y)
-        z_params = self.encoder(x, trace = trace_model['encoder'])
+
+        else:
+            x, y = x, None
+        # encoding
+        encoder_input = self.get_encoder_input(x, y=y)
+        z_params = self.encoder(encoder_input)
+        # sampling
         if sample:
             z = self.sample(z_params)
         else:
             z = z_params.mean
-        y, y_params = self.predict(z, y)
-        z = self.get_decoder_input(z, y=y)
-        x_params = self.decoder(z, trace = trace_model['decoder'])
-        trace = {}
-        trace['embeddings'] = {'latent': {'data': z_params.mean, 'metadata': y}, **trace.get('embeddings', {})}
-        trace['histograms'] = {**trace.get('histograms', {}),
-                               **trace_distribution(z_params, name="latent", scatter_dim=True),
-                               **trace_distribution(x_params, name="out"),
-                               **trace_model}
-        if y_params is not None:
-            for t in y_params:
-                trace['histograms'][f'pred_{t}'] = y_params[t].sample()
-        return trace
+        y_pred_params, y_pred = self.predict(z=z, y=y)
+        # decoding
+        if use_predictions and y_pred is not None:
+            decoder_input = self.get_decoder_input(z, y=y_pred)
+        else:
+            decoder_input = self.get_decoder_input(z, y=y)
+        x_hat = self.decoder(decoder_input)
+        return x_hat, z_params, z, y_pred_params, y_pred
 
     def loss(self, batch, x, z_params, z, y_params = None, drop_detail = False, **kwargs):
         if isinstance(batch, (tuple, list)):
@@ -318,16 +307,29 @@ class AutoEncoder(Model):
         loss = rec_loss + beta * reg_loss
         # classification losses for semi-supervised learning
         classif_losses = {}
-        if y_params is not None:
-            for t, p in y_params.items():
-                # if not p.get('predict', False):
-                #     continue
-                classif_losses[f"{t}_entropy"] = - p.entropy().mean(0).sum()
-                if y is not None:
-                    classif_losses[f"{t}_crossentropy"] =  - p.log_prob(y[t]).mean(0).sum()
-                    loss = loss + self.conditionings[t].get('weight', 1.0) * classif_losses[f"{t}_crossentropy"]
-                else:
-                    loss = loss + self.conditionings[t].get('weight', 1.0) * classif_losses[f"{t}_entropy"]
+        if y is not None:
+            if y_params is not None:
+                for t, p in y_params.items():
+                    # if not p.get('predict', False):
+                    #     continue
+                    # classif_losses[f"{t}_entropy"] = - p.entropy().mean(0).sum()
+                    unsup_idx = torch.where(y[t].isnan())[0]
+                    sup_idx = torch.where(torch.logical_not(y[t].isnan()))[0]
+                    if len(unsup_idx) > 0:
+                        unsup_loss = dist_select(p, unsup_idx).entropy().mean(0).sum()
+                        classif_losses[f"{t}_entropy"] = unsup_loss.detach().cpu().item()
+                        loss = loss - self.config.prediction[t].get('weight', 1.0) * unsup_loss
+                    if len(sup_idx) > 0:
+                        sup_params = dist_select(p, sup_idx)
+                        sup_labels = y[t].index_select(-1, sup_idx)
+                        sup_loss = - sup_params.log_prob(sup_labels).mean(0).sum()
+                        loss = loss - self.config.prediction[t].get('weight', 1.0) * sup_loss
+                        classif_losses[f"{t}_logdensity"] = sup_loss.detach().cpu().item()
+
+                    #     classif_losses[f"{t}_crossentropy"] =  - p.log_prob(y[t]).mean(0).sum()
+                    #     loss = loss + self.conditionings[t].get('weight', 1.0) * classif_losses[f"{t}_crossentropy"]
+                    # else:
+                    #     loss = loss + self.conditionings[t].get('weight', 1.0) * classif_losses[f"{t}_entropy"]
         if drop_detail:
             return loss, {"full_loss": loss.cpu().detach(), **classif_losses, **reg_losses, **rec_losses}
         else:
@@ -339,30 +341,57 @@ class AutoEncoder(Model):
         if len(self._latent_buffer) <= self.dimred_batches:
             self._latent_buffer.append(z_params.detach().cpu())
 
+    def on_train_epoch_end(self):
+        # shamelessly taken from Caillon's RAVE
+        latent_pos = torch.cat(self._latent_buffer, 0).reshape(-1, self.config.latent.dim)
+        self.update_dimreds(latent_pos)
+
     def training_step(self, batch, batch_idx):
         # training_step defined the train loop.
-        x, z_params, z, y_params, y = self.full_forward(batch, batch_idx)
+        x, z_params, z, y_params, y = self.full_forward(batch, batch_idx, use_predictions=False)
         loss, losses = self.loss(batch, x, z_params, z, y_params=y_params, epoch=self.trainer.current_epoch, drop_detail=True)
         losses['beta'] = self.get_beta()
         self.log_losses(losses, "train", prog_bar=True)
         self._update_latent_buffer(z_params)
         return loss
 
-    def on_train_epoch_end(self):
-        # shamelessly taken from Caillon's RAVE
-        latent_pos = torch.cat(self._latent_buffer, 0).reshape(-1, self.config.latent.dim)
-        self.update_dimreds(latent_pos)
+    def validation_step(self, batch, batch_idx):
+        x, z_params, z, y_params, y = self.full_forward(batch, batch_idx, use_predictions=True)
+        loss, losses = self.loss(batch, x, z_params, z, y_params=y_params, drop_detail=True)
+        self.log_losses(losses, "valid", prog_bar=True)
+        return loss
 
     def update_dimreds(self, latent_pos):
         for dimred in self.dimreds.values():
             dimred.fit(latent_pos)
         self._latent_buffer = []
-        
-    def validation_step(self, batch, batch_idx):
-        x, z_params, z, y_params, y = self.full_forward(batch, batch_idx)
-        loss, losses = self.loss(batch, x, z_params, z, y_params=y_params, drop_detail=True)
-        self.log_losses(losses, "valid", prog_bar=True)
-        return loss
+
+    def trace(self, x: torch.Tensor, sample: bool = False, use_predictions: bool = False):
+        trace_model = {'encoder': {}, 'decoder' : {}}
+        if isinstance(x, (tuple, list)):
+            x, y = x
+        x = self.get_encoder_input(x, y=y)
+        z_params = self.encoder(x, trace = trace_model['encoder'])
+        if sample:
+            z = self.sample(z_params)
+        else:
+            z = z_params.mean
+        y_pred_params, y_pred = self.predict(z=z, y=y)
+        if use_predictions and y_pred is not None:
+            decoder_input = self.get_decoder_input(z, y=y_pred)
+        else:
+            decoder_input = self.get_decoder_input(z, y=y)
+        x_params = self.decoder(decoder_input, trace = trace_model['decoder'])
+        trace = {}
+        trace['embeddings'] = {'latent': {'data': z_params.mean, 'metadata': y}, **trace.get('embeddings', {})}
+        trace['histograms'] = {**trace.get('histograms', {}),
+                               **trace_distribution(z_params, name="latent", scatter_dim=True),
+                               **trace_distribution(x_params, name="out"),
+                               **trace_model}
+        if y_pred_params is not None:
+            for t in y_pred_params:
+                trace['histograms'][f'pred_{t}'] = y_pred_params[t].sample()
+        return trace
 
     def reconstruct(self, x, *args, sample_latent=False, sample_data=False, **kwargs):
         x_out, _, _, _, _ = self.full_forward(_recursive_to(x, self.device), sample=sample_latent)

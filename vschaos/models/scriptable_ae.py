@@ -142,26 +142,28 @@ class ScriptableSpectralAutoEncoder(nn_tilde.Module):
     # attributes & buffers
     def _set_buffers(self, auto_encoder):
         # dim reduction parameters
-        self.register_buffer("temperature", torch.tensor(0.))
         self.register_buffer("latent_mean", auto_encoder.latent_mean)
         if hasattr(auto_encoder, "fidelity"):
             self.register_buffer("fidelity", auto_encoder.fidelity)
 
     def _set_params(self, auto_encoder):
         # initialize input / ouput shapes
+        forward_input_shape = auto_encoder.input_shape[0]
+        forward_output_shape = auto_encoder.input_shape[0]
         encode_input_shape = auto_encoder.input_shape[0]
         encode_output_shape = auto_encoder.config.latent.dim
         decode_input_shape = auto_encoder.config.latent.dim
         decode_output_shape = auto_encoder.input_shape[0]
-        forward_input_shape = auto_encoder.input_shape[0]
-        forward_output_shape = auto_encoder.input_shape[0]
+
         # initialize labels
-        self.encode_input_labels = ["(signal) channel %s"%(i+1) for i in range(encode_input_shape)]
-        self.decode_input_labels = ["(signal) latent dim %s"%(i+1) for i in range(decode_input_shape)]
-        self.forward_input_labels = ["(signal) channel %s"%(i+1) for i in range(forward_input_shape)]
-        self.encode_output_labels = ["(signal) latent dim %s"%(i+1) for i in range(encode_output_shape)]
-        self.decode_output_labels = ["(signal) channel %s"%(i+1) for i in range(decode_output_shape)]
-        self.forward_output_labels = ["(signal) channel %s"%(i+1) for i in range(decode_output_shape)]
+        forward_input_labels = ["(signal) channel %s"%(i+1) for i in range(forward_input_shape)]
+        forward_output_labels = ["(signal) channel %s"%(i+1) for i in range(decode_output_shape)]
+        encode_input_labels = ["(signal) channel %s"%(i+1) for i in range(encode_input_shape)]
+        encode_output_labels = ["(signal) latent dim %s"%(i+1) for i in range(encode_output_shape)]
+        decode_input_labels = ["(signal) latent dim %s"%(i+1) for i in range(decode_input_shape)]
+        decode_output_labels = ["(signal) channel %s"%(i+1) for i in range(decode_output_shape)]
+
+        # get ordered tasks
         self._ordered_tasks = [o['name'] for o in auto_encoder.config.get('conditioning', {'tasks': []})['tasks']]
         self._encoder_ordered_tasks = torch.jit.Attribute([], List[str])
         self._decoder_ordered_tasks = torch.jit.Attribute([], List[str])
@@ -178,40 +180,44 @@ class ScriptableSpectralAutoEncoder(nn_tilde.Module):
                 if "encoder" in targets:
                     encode_input_shape += 1
                     forward_input_shape += 1
-                    self.encode_input_labels.append(task_label)
-                    self.forward_input_labels.append(task_label)
+                    encode_input_labels.append(task_label)
+                    forward_input_labels.append(task_label)
                     self._encoder_ordered_tasks.value.append(k)
                     self._forward_ordered_tasks.value.append(k)
                 if "decoder" in targets:
                     decode_input_shape += 1
-                    self.decode_input_labels.append(task_label)
+                    decode_input_labels.append(task_label)
                     self._decoder_ordered_tasks.value.append(k)
                 if k in self.prediction_modules.keys():
                     encode_output_shape += 1
-                    self.encode_output_labels.append(task_label)
+                    encode_output_labels.append(task_label)
                     if k not in self._encoder_ordered_tasks.value:
                         forward_output_shape += 1
-                        self.forward_output_labels.append(task_label)
+                        forward_output_labels.append(task_label)
                 else:
                     if not "encoder" in targets:
                         forward_input_shape += 1
-                        self.forward_input_labels.append(task_label)
+                        forward_input_labels.append(task_label)
                         self._forward_ordered_tasks.value.append(k)
             
-        # set parameter buffers
-        if self._forward_available:
-            self.register_buffer("forward_params", torch.tensor([forward_input_shape, 1, forward_output_shape, 1]))
-        if self._encode_available:
-            self.register_buffer("encode_params", torch.tensor([encode_input_shape, 1, encode_output_shape, self.hop_length]))
-        if self._decode_available:
-            self.register_buffer("decode_params", torch.tensor([decode_input_shape, self.hop_length, decode_output_shape, 1]))
+        # register methods
+        self.register_method("forward", 
+                             forward_input_shape, 1, forward_output_shape, 1,
+                             forward_input_labels, forward_output_labels,
+                             test_method = False)
+        self.register_method("encode", 
+                             encode_input_shape, 1, encode_output_shape, self.hop_length,
+                             encode_input_labels, encode_output_labels,
+                             test_method = False)
+        self.register_method("decode",
+                             decode_input_shape, self.hop_length, decode_output_shape, 1,
+                             decode_input_labels, decode_output_labels,
+                             test_method = False)
 
     def _set_attributes(self, auto_encoder):
-        self.register_buffer("inversion_mode_params", torch.tensor([TYPE_HASH[str]]))
-        self.register_buffer("temperature_params", torch.tensor([TYPE_HASH[float]]))
-        self.register_buffer("dimred_params", torch.tensor([TYPE_HASH[str]]))
-        self._attributes: List[str] = ['inversion_mode', 'temperature', 'dimred']
-        self.dimred = "none"
+        self.register_attribute('inversion_mode', 'keep_input')
+        self.register_attribute('temperature', 0.0)
+        self.register_attribute('dimred', 'none')
 
     @torch.jit.export
     def get_methods(self):
@@ -221,10 +227,6 @@ class ScriptableSpectralAutoEncoder(nn_tilde.Module):
     def get_attributes(self):
         return self._attributes
 
-    # helper functions
-    def populate_parser(self, parser: ArgumentParser) -> None:
-        return
-
     def get_gain_compensation(self, transform=None):
         if transform is None:
             return 1.
@@ -233,23 +235,23 @@ class ScriptableSpectralAutoEncoder(nn_tilde.Module):
 
     # dimensionality reduction methods
     def project_z(self, z:torch.Tensor):
-        if self.dimred == "none":
+        if self.dimred[0] == "none":
             return z
         z, batch_size = flatten_batch(z, dim=-2)
         z = z - self.latent_mean
         for k, v in self.dimreds.items():
-            if k == self.dimred:
+            if k == self.dimred[0]:
                 z = v.forward(z)
         z = reshape_batch(z, batch_size, dim=-2)
         return z
 
     def unproject_z(self, z:torch.Tensor):
-        if self.dimred == "none":
+        if self.dimred[0] == "none":
             return z
         z, batch_size = flatten_batch(z, dim=-2)
         # z = nn.functional.conv1d(z.transpose(-1,-2), self.latent_dimred.t().unsqueeze(-1)).transpose(-1,-2)
         for k, v in self.dimreds.items():
-            if k == self.dimred:
+            if k == self.dimred[0]:
                 z = v.invert(z)
         z = z + self.latent_mean
         z = reshape_batch(z, batch_size, dim=-2)
@@ -263,7 +265,6 @@ class ScriptableSpectralAutoEncoder(nn_tilde.Module):
                 if hasattr(t, "inversion_mode"):
                     return t.inversion_mode
         return "no inversion mode"
-            
         
     @torch.jit.export
     def set_inversion_mode(self, inversion_mode: str) -> int:
@@ -277,12 +278,12 @@ class ScriptableSpectralAutoEncoder(nn_tilde.Module):
     # temperature
     @torch.jit.export
     def get_temperature(self) -> float:
-        return self.temperature.item()
+        return self.temperature[0]
 
     @torch.jit.export
     def set_temperature(self, temperature: float) -> int:
         if temperature >= 0:
-            self.temperature.fill_(temperature)
+            self.temperature = (temperature,)
             return 0
         else:
             return -1
@@ -290,17 +291,17 @@ class ScriptableSpectralAutoEncoder(nn_tilde.Module):
     # dimensionality reduction
     @torch.jit.export
     def get_dimred(self) -> str:
-        return self.dimred
+        return self.dimred[0]
 
     @torch.jit.export 
     def set_dimred(self, dimred: str) -> int:
         if dimred == "none":
-            self.dimred = "none"
+            self.dimred = ("none",)
         else:
             for k, v in self.dimreds.items():
                 if k == dimred:
-                    self.dimred = dimred
-            if self.dimred != dimred:
+                    self.dimred = (dimred,)
+            if self.dimred[0] != dimred:
                 return -1
         return 0
 
@@ -453,7 +454,7 @@ class ScriptableSpectralAutoEncoder(nn_tilde.Module):
 
         # separate data from conditionings
         z = self.encoder(x)
-        out = z.mean + self.temperature * z.stddev
+        out = z.mean + self.temperature[0] * z.stddev
         out = self.project_z(out)
         if len(self.prediction_modules) > 0:
             out = torch.cat([out, self.get_predictions(out)], -1)
@@ -493,7 +494,7 @@ class ScriptableSpectralAutoEncoder(nn_tilde.Module):
                 x_tmp = x[..., i, :]
                 x_enc = self.get_forward_input(x_tmp)
                 z = self.encoder(x_enc)
-                decoder_input = z.mean + self.temperature * z.stddev
+                decoder_input = z.mean + self.temperature[0] * z.stddev
                 decoder_input, predicted_outs= self.get_forward_latent(x_tmp, decoder_input)
                 x_rec = self.decoder(decoder_input)
                 if isinstance(x_rec, Distribution):

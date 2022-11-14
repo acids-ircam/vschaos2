@@ -29,8 +29,6 @@ def get_root_dir(dirpath, name):
             os.makedirs(dirpath)
         return dirpath
 
-
-
 def checkdist(obj):
     if (obj is None) or (obj == "none") or (obj == "None"):
         return None
@@ -126,7 +124,6 @@ def checknumpy(tensor):
         return tensor
     elif torch.is_tensor(tensor):
         return tensor.cpu().detach().numpy()
-
 
 def flatten_batch(x: torch.Tensor, dim: int = -1):
     batch_size = x.shape[:dim]

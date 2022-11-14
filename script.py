@@ -11,6 +11,7 @@ parser.add_argument('-o', '--output', type=str, default="./", help="output locat
 parser.add_argument('--verbose', type=int, default=0)
 args = parser.parse_args()
 
+
 # script model
 model, config, transform = load_model_from_run(args.model, version=args.version, name=args.name, verbose=True)
 model = model.eval()
@@ -23,6 +24,7 @@ scripted_model = torch.jit.script(scripted_model)
 print("model attributes : \n", scripted_model.get_attributes())
 out_path = os.path.join(args.output, os.path.basename(args.model) + ".ts")
 
+
 # check if file exists
 if os.path.isfile(out_path):
     char = ""
@@ -33,12 +35,12 @@ if os.path.isfile(out_path):
     else:
         exit()
 
+
 # save file
 torch.jit.save(scripted_model, out_path)
 print("model saved at : ", out_path)
 
 
-# scripted_model.set_dimred('PCA')
 # test script
 if args.test:
     # y[k] = torch.randint(0, model.conditionings[k]['dim'], size=(2,16384))
@@ -60,5 +62,3 @@ if args.test:
     out = scripted_model.forward(x)
     if args.verbose:
         print("forward out shape :", out.shape)
-
-

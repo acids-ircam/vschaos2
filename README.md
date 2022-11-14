@@ -3,9 +3,12 @@
 
 `vschaos2`, [based on the original `vschaos` package](https://github.com/domkirke/vschaos) [1][2], allows unsupervised / (semi-)supervised training of spectral information using variational auto-encoders [3], allowing direct manipulation in Max/MSP or PureData environments using [nn_tilde](https://github.com/acids-ircam/nn_tilde). `vschaos2` may be trained on small batches of data, is very light, usable using small architectures, and can also be used for auxiliary predictive tasks.
 
-*Link to video demo*
-
-**To come :**
+<p style="text-align: center;">
+<video width="320" height="240" controls>
+  <source src="assets/demo.mp4" type="video/mp4">
+Your browser does not support the video tag.
+</video>
+</p>
 
 
 # Quick Start
@@ -72,6 +75,8 @@ python3 train_model.py --config-name dgt_mid name=my_training rundir=my_path dat
 where `--config-name` is followed by the name of a configuration file in the `configs/` subfolder, `my_training` is a customized training name, `my_path` the location of the training, and `my_data` is the path of a formatted dataset (see section [data management](#data-management)).
 
 ### Supervised model
+Conditioning variational auto-encoders may be achieved in a semi-supervised fashion, allowing to constrain the generation to high-level external information [4]. 
+
 **Specifying metadata callbacks.** By default, metadata is imported as `int` labels. If you want a precise control over metadata parsing, additional arguments may be given to the dataset in the `.yaml` file : 
 ```yaml
 data:
@@ -90,12 +95,32 @@ where you would use `read_single_metadata` if metadata if each audio file belong
 **Specifying conditioning tasks.** To condition a model, you must add an additional `conditioning` entry to the `model` configuration :
 ```yaml
 model:
-  tasks:
-    - {name: task_1, dim: task_dim_1, target: ['encoder', 'decoder'], 'embedding': 'OneHot'}
-    - {name: task_2, dim: task_dim_2, target: ['decoder'], 'embedding': 'Embedding'}
-    - ... 
+  task_1: 
+    dim: task_dim_1
+    target: ['encoder', 'decoder']
+    embedding: OneHot
+  task_2:
+    dim: task_dim_2
+    target: ['decoder']
+    embedding: OneHot
+   ... 
 ```
-where `dim`, `target`, and `embedding` keywords define respectively the dimensionality, target module, and embedding type for each task. 
+where `dim`, `target`, and `embedding` keywords define respectively the dimensionality, target module, and embedding type for each task. Conditioning the decoder will encourage the model to disentangle the class information from the latent space, allowing to control the generation by giving the corresponding label. Conditioning the encoder will rather provide a different latent space by label, hence enforcing class separation (at the cost of being always provided the label for the encoding process).
+
+**Predicting labels.** Additional predictors can be provided to the model, that will be available as an additional output in the `nn~` module and that can be used for conditioning the decoder even if label information is unavailable. To add predictors to the model, you must add an additional `prediction` entry to the `model` configuration : 
+```yaml
+model:
+  prediction:
+    task_1:
+      dim: task_dim_1
+      type: MLPEncoder 
+      args: 
+        nlayers: 2
+        hidden_dims: 200
+        target_dist: Categorical
+    ...
+```
+Prediction modules are trained besides the VAE (with a stop gradient before the classifier), such that the encoder is not influenced by the classification results. If label information is available, the classifier is trained to predict the corresponiding label; if it is not, it is trained on random values. Be careful to not predict a label that is conditioning the encoder!
 
 **Example with pitch & octave.** A script is provided to generate pitch and octave metadata using the `torchcrepe` package. After having moved the audio files into the `/data` subfolder, generate metadata files by launching
 ```sh
@@ -103,16 +128,37 @@ python3 extract_pitch.py my_data
 ```
 such that `pitch` and `octave` metadatas will be generated in the `/metadata` sub-folder. Then, you can use the `dgt_pitch_cond` config file to train a parametrized VAE on `pitch` and `octave` : 
 ```sh
-python3 train.py --config-name dgt_pitch_cond name=my_training rundir=my_path data.dataset.root=my_data
+python3 train.py --config-name dgt_pitch_prediction name=my_training rundir=my_path data.dataset.root=my_data
 ```
+such that the model's decoder will be conditioned by both pitch and octave, that can be provided by the predictor if the corresponding label is missing. 
 
 ### Tricks
 - You can add the `+check=1` option to `train.py` to add a breakpoint before lauching the training loop, allowing to check the architecture of your model and your dataset.
 - You can also add the `+data.dataset.n_files=X` to only load `X` files from your dataset, allowing you to train on small data subsets to verify that your training setup works.
 
-## Scripting a model
-## Using a model
+## Generating with a trained model
 
+### Command-line generation
+The script `generate.py` allows to generate from a model using the command line. There two generation modes so far : `reconstruct`, to reconstruct a given bunch of files thourgh the model, and `trajectories`, leveraging the [`trajectories` library](https://github.com/domkirke/trajectories) to generate latent space exploration.
+
+**Reconstruction.** To reconstruct a file through a model, you can execute 
+```sh
+python3 generate.py reconstruct path_to_rundir --files path_to_audio.wav path_to_audio_folder/ --sr 44100 --out path_to_out/
+```
+to export the generations in the `path_to_out/reconstructions` folder. 
+
+**Trajectories.** To directly generate from the latent space from random trajectories, you can execute
+```sh
+python3 generate.py trajectories path_to_rundir --trajectories sin random line --sr 44100 -b 3 -s 512 --out path_to_out/
+```
+to generate 3 batches of random sin, random and line 512-stepped trajectories, that will be saved in the `path_to_out/trajectories`.
+
+### Exporting for nn~
+To export a model, just use the `script.py` with the training folder : 
+```sh
+python3 script.py path_to_model/ -o output_dir/ -v version_number -n name
+```
+where `path_to_model/` is the training `rundir`, `version_number` is the version number of the training (if not indicated, take the last training) and `name` the model name (default : `last`). The `.ts` file will be exported at `path_to_model/`, and can be imported by `nn~`. 
 
 # References
 
@@ -121,3 +167,5 @@ python3 train.py --config-name dgt_pitch_cond name=my_training rundir=my_path da
 [2] Chemla--Romeu-Santos, A., Esling, P., & Ntalampiras, S. (2020, October). [Représentations variationnelles inversibles: une nouvelle approche pour la synthèse sonore](https://hal.archives-ouvertes.fr/hal-03353913). In Journées d'Informatique Musicale 2020 (JIM 2020).
 
 [3] Kingma, D. P., & Welling, M. (2013). [Auto-encoding variational bayes](https://arxiv.org/abs/1312.6114). arXiv preprint arXiv:1312.6114
+
+[4] Kingma, D. P., Mohamed, S., Jimenez Rezende, D., & Welling, M. (2014). [Semi-supervised learning with deep generative models](https://proceedings.neurips.cc/paper/2014/file/d523773c6b194f37b938d340d5d02232-Paper.pdf). Advances in neural information processing systems, 27
