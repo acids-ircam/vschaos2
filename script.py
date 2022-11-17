@@ -24,7 +24,6 @@ scripted_model = torch.jit.script(scripted_model)
 print("model attributes : \n", scripted_model.get_attributes())
 out_path = os.path.join(args.output, os.path.basename(args.model) + ".ts")
 
-
 # check if file exists
 if os.path.isfile(out_path):
     char = ""
@@ -35,11 +34,9 @@ if os.path.isfile(out_path):
     else:
         exit()
 
-
 # save file
 torch.jit.save(scripted_model, out_path)
 print("model saved at : ", out_path)
-
 
 # test script
 if args.test:

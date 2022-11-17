@@ -164,7 +164,7 @@ class ScriptableSpectralAutoEncoder(nn_tilde.Module):
         decode_output_labels = ["(signal) channel %s"%(i+1) for i in range(decode_output_shape)]
 
         # get ordered tasks
-        self._ordered_tasks = [o['name'] for o in auto_encoder.config.get('conditioning', {'tasks': []})['tasks']]
+        self._ordered_tasks = [o for o in auto_encoder.config.get('conditioning', {}).keys()]
         self._encoder_ordered_tasks = torch.jit.Attribute([], List[str])
         self._decoder_ordered_tasks = torch.jit.Attribute([], List[str])
         self._forward_ordered_tasks = torch.jit.Attribute([], List[str])
@@ -199,7 +199,7 @@ class ScriptableSpectralAutoEncoder(nn_tilde.Module):
                         forward_input_shape += 1
                         forward_input_labels.append(task_label)
                         self._forward_ordered_tasks.value.append(k)
-            
+        
         # register methods
         self.register_method("forward", 
                              forward_input_shape, 1, forward_output_shape, 1,
@@ -401,7 +401,7 @@ class ScriptableSpectralAutoEncoder(nn_tilde.Module):
         predicted_y_list = []
         if self.use_dimred:
             z = self.unproject_z(z)
-        if len(self._forward_ordered_tasks) > 0:
+        if len(self._decoder_ordered_tasks) > 0:
             splits = (self.input_shape[0], ) + (1,) * (x.size(-2) - self.input_shape[0])
             x_splitted = list(x.split(splits, -2))
             metadatas = []
@@ -418,7 +418,7 @@ class ScriptableSpectralAutoEncoder(nn_tilde.Module):
                 metadatas.append(current_meta)
             y = torch.cat(metadatas, -1)
             z = torch.cat([z, y], -1)
-            if len(predicted_y) > 0:
+            if len(predicted_y_list) > 0:
                 predicted_y = torch.cat(predicted_y_list, -1)
         return z, predicted_y
 
@@ -490,6 +490,7 @@ class ScriptableSpectralAutoEncoder(nn_tilde.Module):
         if self.use_oa:
             x = self.overlap_add(x)
             outs = []
+            predicted_outs = torch.zeros(0) 
             for i in range(x.size(-2)):
                 x_tmp = x[..., i, :]
                 x_enc = self.get_forward_input(x_tmp)
@@ -501,8 +502,10 @@ class ScriptableSpectralAutoEncoder(nn_tilde.Module):
                     x_rec = x_rec.mean
                 if self.transform is not None:
                     x_rec = self.transform.invert(x_rec)
+                print("predicted : ", predicted_outs.shape)
                 if predicted_outs.size(0) != 0:
                     x_rec = torch.cat([x_rec, reshape_cond(predicted_outs, x_rec)], -2)
+                print('x_rec size : ', x_rec.shape)
                 outs.append(x_rec)
             outs = torch.stack(outs, -2)
             outs = self.overlap_add.invert(outs)
