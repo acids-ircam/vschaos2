@@ -454,7 +454,7 @@ class ScriptableSpectralAutoEncoder(nn_tilde.Module):
 
         # separate data from conditionings
         z = self.encoder(x)
-        out = z.mean + self.temperature[0] * z.stddev
+        out = z.mean + self.temperature[0] * z.stddev * torch.randn_like(z.mean)
         out = self.project_z(out)
         if len(self.prediction_modules) > 0:
             out = torch.cat([out, self.get_predictions(out)], -1)
@@ -495,7 +495,7 @@ class ScriptableSpectralAutoEncoder(nn_tilde.Module):
                 x_tmp = x[..., i, :]
                 x_enc = self.get_forward_input(x_tmp)
                 z = self.encoder(x_enc)
-                decoder_input = z.mean + self.temperature[0] * z.stddev
+                decoder_input = z.mean + self.temperature[0] * z.stddev * torch.randn_like(z.mean)
                 decoder_input, predicted_outs= self.get_forward_latent(x_tmp, decoder_input)
                 x_rec = self.decoder(decoder_input)
                 if isinstance(x_rec, Distribution):

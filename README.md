@@ -24,6 +24,9 @@ Your browser does not support the video tag.
 ## Installing vschaos2
 Use your favorite environment manager to create a specific python environment for `vschaos2` (we advise to use [the miniconda package manager](https://docs.conda.io/en/latest/miniconda.html)). Using miniconda : 
 ```sh
+cd your_target_folder
+git clone http://www.github.com/acids_ircam/vschaos2
+cd vschaos2
 conda create -n vschaos python=3.8
 conda activate vschaos
 pip install -r requirements.txt
