@@ -132,7 +132,7 @@ class DeconvEncoder(nn.Module):
                 if len(output_padding[n]) == 0:
                     output_padding[n] = None
                 else:
-                    output_padding[n] = tuple(output_padding[n].astype(np.int).tolist())
+                    output_padding[n] = tuple(output_padding[n].astype(np.int16).tolist())
             self.output_padding = output_padding
         else:
             output_padding = self.output_padding
@@ -518,7 +518,7 @@ class DeconvEncoder(nn.Module):
                                                                                 dilation=self.dilation[n],
                                                                                 stride=self.stride[n],
                                                                                 **self.block_args[n])
-                output_padding[n] = tuple(output_padding[n].astype(np.int).tolist())
+                output_padding[n] = tuple(output_padding[n].astype(np.int16).tolist())
             self.output_padding = output_padding
         else:
             output_padding = self.output_padding

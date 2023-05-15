@@ -1,0 +1,109 @@
+name: ???
+rundir: "${dir:runtime}/saves/${name}"
+
+hydra:
+  job:
+    name: "${name}"
+  run:
+    dir: "${rundir}/${name}"
+  sweep:
+    dir: "${dir:runtime}/saves/${name}"
+    subdir: "${base:${data.dataset.root}}"
+
+defaults:
+  - callbacks: audio_defaults
+  - _self_
+
+data:
+  module: AudioDataModule
+  transforms: 
+    name: dgt-8192-mag
+    pre_transforms:
+      - {type: Mono, args: {squeeze: 1}}
+      - {type: DGT, args: {n_fft: &n_fft 8192, hop_length: 2048}}
+      - {type: Magnitude, args: {contrast: log1p, n_fft: *n_fft, mel: 0, mode: unipolar}}
+    transforms: 
+      - {type: Unsqueeze, args: {dim: -2}}
+  augmentations:
+    - {type: Shift, args: {prob: 0.3}}
+    - {type: Normal, args: {prob: 1.0, amp_range: 0.1, clamp: [0, none]}}
+  dataset:
+    metadata_callbacks:
+      pitch:
+        name: read_single_metadata
+        type: int
+      octave:
+        name: read_single_metadata
+        type: int
+      dynamics:
+        name: read_single_metadata
+        type: int
+    flatten: -2
+    min_length: 16384
+    # sequence:
+    #   length: 1
+    #   mode: random
+    #   idx: -2
+  loader:
+    batch_size: 256
+    shuffle: True
+
+# here we add specific parameters for the decoder's output (softplus + normal distribution).
+model:
+  type: AutoEncoder
+  latent:
+    dist: Normal
+    dim: 8
+  encoder:
+    type: ConvEncoder
+    args:
+      channels: [64,32,16,8]
+      dilation: [1,1,1,1]
+      stride: [8,4,4,2]
+      kernel_size: [11,13,15,17]
+      nnlin: SiLU 
+      bias: True
+      target_dist: Normal
+      norm: batch
+  decoder:
+    type: DeconvEncoder
+    args:
+      layer: GatedDeconvLayer
+      nnlin: SiLU
+      channels: [8,16,32,64]
+      dilation: [1,1,1,1]
+      stride: [8,4,4,2]
+      kernel_size: [17,15,13,11]
+      norm: batch
+      # target_dist: Normal
+      final_conv: 1
+      out_nnlin: Softplus
+      bias: True 
+  training: 
+    beta: 1.0
+    beta_schedule_type: batch
+    reconstruction: 
+      type: SpectralConvergence
+      # type: MSE
+    regularization:
+      type: KLD 
+      args: 
+        free_bits: 10
+    optimizer: 
+      type: Adam
+      args:
+        lr: 1.e-4
+    warmup: 500000
+
+callbacks: 
+- { type: ModelCheckpoint, args: {filename: "${hydra:job.name}", save_last: True, every_n_epochs: 1, epoch_schedule: [1, 5, 10, 50, 100, 500], monitor: rec_loss/valid}}
+- { type: LearningRateMonitor, args: {logging_interval: "epoch"} }
+- { type: DissectionMonitor, args: {monitor_epochs: 5, embedding_epochs: 10, n_batches: 20, batch_size: 64} }
+- { type: AudioReconstructionMonitor, args: {reconstruction_epochs: 1, monitor_epochs: 1, plot_reconstructions: 1, plot_samples: 1, generate_files: 1, generate_trajs: 0}}
+
+
+pl_trainer:
+  max_epochs: 10000
+  # limit_train_batches: 1
+  # limit_val_batches: 1
+

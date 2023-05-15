@@ -35,6 +35,8 @@ if os.path.isfile(out_path):
         exit()
 
 # save file
+if not os.path.isdir(os.path.dirname(out_path)):
+    os.makedirs(os.path.dirname(out_path))
 torch.jit.save(scripted_model, out_path)
 print("model saved at : ", out_path)
 

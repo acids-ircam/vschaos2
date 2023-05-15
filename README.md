@@ -3,22 +3,20 @@
 
 `vschaos2`, [based on the original `vschaos` package](https://github.com/domkirke/vschaos) [1][2], allows unsupervised / (semi-)supervised training of spectral information using variational auto-encoders [3], allowing direct manipulation in Max/MSP or PureData environments using [nn_tilde](https://github.com/acids-ircam/nn_tilde). `vschaos2` may be trained on small batches of data, is very light, usable using small architectures, and can also be used for auxiliary predictive tasks.
 
-<p style="text-align: center;">
-<video width="320" height="240" controls>
-  <source src="assets/demo.mp4" type="video/mp4">
-Your browser does not support the video tag.
-</video>
-</p>
+<center>
+<iframe width="560" height="315" src="https://www.youtube.com/embed/zGnvID6EMbU" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+<br/><span style="font-size: 0.8em">aego performance of Hugo Scurto and Axel Chemla--Romeu-Santos performance using vschaos and <a href="https://hugoscurto.com/en/portfolio/co-explorer/">co-explorer</a> in real-time</em>
+</center>
+
 
 
 # Quick Start
 1. Download the current repository.
 2. If you don't have PureData or Max, [download PureData for free](https://puredata.info/) or [Max for evaluation](https://cycling74.com/downloads).
 3. Install nn~ following instructions [here](https://github.com/acids-ircam/).
-4. Download the `ordinario` pre-trained model on [the ACIDS github page](acids-ircam.github.io) into the `patches` subfolder.
+4. Download the `ordinario` pre-trained model on [the ACIDS github page](acids-ircam.github.io) into the `patches` subfolder if using Max, or in the `externals` sub-folder or Pd Library.
 5. Open `pd_example.pd` or `max_example.maxpat`, depending the choice you made at step 1.
 6. Play!
-
 
 # Full install 
 ## Installing vschaos2
@@ -27,11 +25,11 @@ Use your favorite environment manager to create a specific python environment fo
 cd your_target_folder
 git clone http://www.github.com/acids_ircam/vschaos2
 cd vschaos2
-conda create -n vschaos python=3.8
+conda create -n vschaos python=3.8 setuptools==59.5.0
 conda activate vschaos
 pip install -r requirements.txt
 ```
-##### You may need to manually install pytorch beforehand if you got specific CUDA needs : find more information [here](https://pytorch.org/).
+###### You may need to manually install pytorch before `pip install` if you got specific CUDA needs : find more information [here](https://pytorch.org/).
 
 
 ## Data management
@@ -73,7 +71,7 @@ where onsets and offsets are indicated in seconds (separated by a comma), and ar
 ### Unsupervised model
 Model configurations are based on the `hydra` configuration manager, using `.yaml` to specify the VAE's architecture. Commented configurations are given in the `configs/` folder, such that you only need to specify the data path and the tranining root / name : 
 ```bash
-python3 train_model.py --config-name dgt_mid name=my_training rundir=my_path data.dataset.root=my_data
+python3 train_model.py --config-name dgt_mid name=my_training rundir=my_path +data.dataset.root=my_data
 ```
 where `--config-name` is followed by the name of a configuration file in the `configs/` subfolder, `my_training` is a customized training name, `my_path` the location of the training, and `my_data` is the path of a formatted dataset (see section [data management](#data-management)).
 
@@ -98,14 +96,15 @@ where you would use `read_single_metadata` if metadata if each audio file belong
 **Specifying conditioning tasks.** To condition a model, you must add an additional `conditioning` entry to the `model` configuration :
 ```yaml
 model:
-  task_1: 
-    dim: task_dim_1
-    target: ['encoder', 'decoder']
-    embedding: OneHot
-  task_2:
-    dim: task_dim_2
-    target: ['decoder']
-    embedding: OneHot
+  conditioning:
+    task_1: 
+      dim: task_dim_1
+      target: ['encoder', 'decoder']
+      embedding: OneHot
+    task_2:
+      dim: task_dim_2
+      target: ['decoder']
+      embedding: OneHot
    ... 
 ```
 where `dim`, `target`, and `embedding` keywords define respectively the dimensionality, target module, and embedding type for each task. Conditioning the decoder will encourage the model to disentangle the class information from the latent space, allowing to control the generation by giving the corresponding label. Conditioning the encoder will rather provide a different latent space by label, hence enforcing class separation (at the cost of being always provided the label for the encoding process).

@@ -3,7 +3,7 @@ import warnings
 from functools import total_ordering
 
 import torch
-from torch._six import inf
+from torch import inf
 
 from torch.distributions.beta import Beta
 from torch.distributions.dirichlet import Dirichlet

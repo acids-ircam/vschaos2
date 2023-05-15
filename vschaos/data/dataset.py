@@ -332,7 +332,7 @@ class AudioDataset(Dataset):
                 current_meta = current_meta[metadata['time']]
             elif hasattr(current_meta, '__iter__'):
                 current_meta = current_meta[seq]
-            if isinstance(current_meta, (int, np.int, np.int32, np.int64)):
+            if isinstance(current_meta, (int, np.int32, np.int64)):
                 metadata[k] = torch.tensor(current_meta, dtype=torch.long)
             elif isinstance(current_meta, (float, np.float, np.float32, np.float64)):
                 metadata[k] = torch.tensor(current_meta)

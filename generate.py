@@ -10,6 +10,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('mode', type=str, help="generation mode", choices=generate_tasks)
 parser.add_argument('path', type=str, help="model path")
 parser.add_argument('--dataset', type=str, help="reference dataset (used to retrieve metadata)")
+parser.add_argument('--meta', type=str, nargs="*", default=[], help="indicates metadata for conditioned model : TASK1 label1 TASK2 label2 ... ")
 parser.add_argument('--sr', type=int, help="sample rate")
 parser.add_argument("--cuda", type=int, default=None)
 # General arguments
@@ -36,6 +37,7 @@ else:
     device = torch.device("cuda:"+str(args.cuda))
 
 model, config, transform = load_model_from_run(args.path, verbose=True)
+model = model.to(device)
 model = model.eval()
 
 # Set sample rate
@@ -46,6 +48,30 @@ else:
     sr = args.sr
 assert sr is not None, "sr not found in model; please provide sample rate with the --sr keyword"
 
+y_enc = {}
+y_dec = {}
+if hasattr(model, "conditionings"):
+    parsed_meta = {}
+    assert len(args.meta) % 2 == 0, "--meta must be : task_1 val_1 task_2 val_2 ..."
+    for i in range(0, len(args.meta), 2):
+        parsed_meta[args.meta[i]] = args.meta[i+1]
+    for task, info in model.conditionings.items():
+        if info['embedding'] == 'OneHot':
+            if task in parsed_meta:
+                if args.mode == "reconstruct":
+                    value = torch.LongTensor([[int(parsed_meta[task])]])
+                elif args.mode == "trajectories":
+                    value = torch.LongTensor([[int(parsed_meta[task])]]).repeat(args.n_batches, 1)
+            else:
+                if args.mode == "reconstruct":
+                    value = torch.randint(0, info['dim'], (1, 1))
+                elif args.mode == "trajectories":
+                    value = torch.randint(0, info['dim'], (args.n_batches, 1))
+        if 'encoder' in info['target']:
+            y_enc[task] = value.to(device)
+        if 'decoder' in info['target']:
+            y_dec[task] = value.to(device)
+
 # Process
 if args.mode == "reconstruct":
     if not os.path.isdir(os.path.join(args.out_path, "reconstructions")):
@@ -53,7 +79,6 @@ if args.mode == "reconstruct":
     assert args.files is not None, "--files arguments needed for reconstruction mode"
     # list files
     files = []
-    print(args.files)
     for f in args.files:
         if os.path.isfile(f):
             files.append(f)
@@ -62,7 +87,7 @@ if args.mode == "reconstruct":
                 for f_tmp in filelist:
                     if os.path.splitext(f_tmp)[1].lower() in [".wav", ".mp3", ".aif", ".aiff"]:
                         files.append(os.path.join(r, f_tmp))
-    print("hello", files)
+    
     assert len(files) > 0, "no files found"
     # import files
     outs = {}
@@ -74,19 +99,32 @@ if args.mode == "reconstruct":
                 x_tmp = torchaudio.functional.resample(x_tmp, sr_tmp, sr)
         x_tmp = transform(x_tmp)
         x_tmp = x_tmp.to(device)
+        y_enc_tmp = {}
+        y_dec_tmp = {}
+
         with torch.no_grad():
-            latent_tmp = model.encode(x_tmp.unsqueeze(0))
+            if hasattr(model, "conditionings"):
+                for k, v in y_enc.items():
+                    y_enc_tmp[k] = v.repeat(1, x_tmp.shape[0])
+            latent_tmp = model.encode(x_tmp.unsqueeze(0), y=y_enc_tmp)
+
             if args.sample_latent: 
                 latent_tmp = latent_tmp.sample()
             else:
                 latent_tmp = latent_tmp.mean
+            if hasattr(model, "conditionings"):
+                for k, v in y_dec.items():
+                    if k in model.prediction_modules:
+                        y_dec_tmp[k] = model.prediction_modules[k](latent_tmp).probs.argmax(-1)
+                    else:
+                        y_dec_tmp[k] = v.repeat(1, latent_tmp.shape[1])
             if args.jitter is None:
-                x_tmp = model.decode(latent_tmp)
+                x_tmp = model.decode(latent_tmp, y=y_dec_tmp)
             else:
-                x_tmp = model.decode(latent_tmp + args.jitter * torch.randn_like(latent_tmp))
+                x_tmp = model.decode(latent_tmp + args.jitter * torch.randn_like(latent_tmp), y=y_dec_tmp)
         if isinstance(x_tmp, Distribution):
             x_tmp = x_tmp.mean
-        x_tmp = transform.invert(x_tmp[0])
+        x_tmp = transform.invert(x_tmp[0].cpu())
         if args.jitter is None:
             filename = os.path.join("reconstructions", f"{name}.wav")
         else:
@@ -120,7 +158,10 @@ elif args.mode == "trajectories":
             print('trajectory %s not known'%traj_type)
             continue
         current_trajectory = torch.from_numpy(traj(t)).float()
-        decoded_traj = model.decode(current_trajectory.to(model.device))
+        y_dec_tmp = {}
+        for k, v in y_dec.items():
+            y_dec_tmp[k] = v.repeat(1, current_trajectory.shape[1])
+        decoded_traj = model.decode(current_trajectory.to(model.device), y=y_dec_tmp)
         if isinstance(decoded_traj, Distribution):
             decoded_traj = decoded_traj.mean
         x_reconstruction = transform.invert(decoded_traj.cpu())

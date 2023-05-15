@@ -164,41 +164,45 @@ class ScriptableSpectralAutoEncoder(nn_tilde.Module):
         decode_output_labels = ["(signal) channel %s"%(i+1) for i in range(decode_output_shape)]
 
         # get ordered tasks
-        self._ordered_tasks = [o for o in auto_encoder.config.get('conditioning', {}).keys()]
+        # self._ordered_tasks = [o for o in auto_encoder.config.get('conditioning', {}).keys()]
+        self._ordered_tasks = list(auto_encoder.config.get('conditioning', {}).keys()) + list(auto_encoder.config.get('prediction', {}).keys())
         self._encoder_ordered_tasks = torch.jit.Attribute([], List[str])
         self._decoder_ordered_tasks = torch.jit.Attribute([], List[str])
         self._forward_ordered_tasks = torch.jit.Attribute([], List[str])
         # check conditionings
         for k in self._ordered_tasks:
-            if self.conditionings[k].get('mode', 'cat') == "cat":
-                label_dim = self.conditionings[k]['dim']
-                targets = checklist(self.conditionings[k].get('target', ['decoder']))
-                if isinstance(auto_encoder.concat_embeddings[k], (torch.nn.Embedding, at.OneHot)):
-                    task_label = f'(signal) {k} label (0-{label_dim})'
-                else:
-                    task_label = f'(signal) {k} label (float)'
-                if "encoder" in targets:
-                    encode_input_shape += 1
-                    forward_input_shape += 1
-                    encode_input_labels.append(task_label)
-                    forward_input_labels.append(task_label)
-                    self._encoder_ordered_tasks.value.append(k)
-                    self._forward_ordered_tasks.value.append(k)
-                if "decoder" in targets:
-                    decode_input_shape += 1
-                    decode_input_labels.append(task_label)
-                    self._decoder_ordered_tasks.value.append(k)
-                if k in self.prediction_modules.keys():
-                    encode_output_shape += 1
-                    encode_output_labels.append(task_label)
-                    if k not in self._encoder_ordered_tasks.value:
-                        forward_output_shape += 1
-                        forward_output_labels.append(task_label)
-                else:
-                    if not "encoder" in targets:
+            if k in self.conditionings:
+                if self.conditionings[k].get('mode', 'cat') == "cat":
+                    label_dim = self.conditionings[k]['dim']
+                    targets = checklist(self.conditionings[k].get('target', ['decoder']))
+                    if isinstance(auto_encoder.concat_embeddings[k], (torch.nn.Embedding, at.OneHot)):
+                        task_label = f'(signal) {k} label (0-{label_dim})'
+                    else:
+                        task_label = f'(signal) {k} label (float)'
+                    if "encoder" in targets:
+                        encode_input_shape += 1
                         forward_input_shape += 1
+                        encode_input_labels.append(task_label)
                         forward_input_labels.append(task_label)
+                        self._encoder_ordered_tasks.value.append(k)
                         self._forward_ordered_tasks.value.append(k)
+                    if "decoder" in targets:
+                        decode_input_shape += 1
+                        decode_input_labels.append(task_label)
+                        self._decoder_ordered_tasks.value.append(k)
+            if k in self.prediction_modules.keys():
+                label_dim = auto_encoder.config.prediction[k]['dim']
+                task_label = f'(signal) {k} label (0-{label_dim})'
+                encode_output_shape += 1
+                encode_output_labels.append(task_label)
+                if k not in self._encoder_ordered_tasks.value:
+                    forward_output_shape += 1
+                    forward_output_labels.append(task_label)
+            else:
+                if not "encoder" in targets:
+                    forward_input_shape += 1
+                    forward_input_labels.append(task_label)
+                    self._forward_ordered_tasks.value.append(k)
         
         # register methods
         self.register_method("forward", 

@@ -192,8 +192,14 @@ class AutoEncoder(Model):
         # in lightning, forward defines the prediction/inference actions
         return self.encode(x, *args, **kwargs)
 
-    def encode(self, x: torch.Tensor) -> torch.Tensor:
-        return self.encoder(x)
+    def encode(self, x: torch.Tensor, y: Dict[str, torch.Tensor] = None) -> torch.Tensor:
+        encoder_input = self.get_encoder_input(x, y=y)
+        z_params = self.encoder(encoder_input)
+        return z_params
+
+    def decode(self, z: torch.Tensor, y: Dict[str, torch.Tensor] = None) -> torch.Tensor:
+        decoder_input = self.get_decoder_input(z, y=y)
+        return self.decoder(decoder_input)
 
     def sample(self, z_params: Union[dist.Distribution, torch.Tensor]) -> torch.Tensor:
         """Samples a latent distribution."""
@@ -202,10 +208,6 @@ class AutoEncoder(Model):
         else:
             z = z_params
         return z
-
-    def decode(self, z: torch.Tensor):
-        """Decode an incoming tensor."""
-        return self.decoder(z)
 
     def predict(self, z: torch.Tensor, y: Dict[str, torch.Tensor] = None):
         if not hasattr(self, "prediction_modules"):
@@ -263,7 +265,7 @@ class AutoEncoder(Model):
         return z
 
     @torch.jit.export
-    def full_forward(self, x: torch.Tensor, batch_idx: int=None,  sample: bool=True, use_predictions = True) -> Dict:
+    def full_forward(self, x: torch.Tensor, batch_idx: int=None,  sample: bool=True, use_predictions = True, log: Union[str, None] = None) -> Dict:
         """encodes and decodes an incoming tensor."""
         if isinstance(x, (tuple, list)):
             x, y = x
@@ -285,6 +287,12 @@ class AutoEncoder(Model):
         else:
             decoder_input = self.get_decoder_input(z, y=y)
         x_hat = self.decoder(decoder_input)
+        if self.has_classifiers and log:
+            ratios = {}
+            for k in self.prediction_modules.keys():
+                pred_ratio = y['pitch'].eq(y_pred['pitch']).int().sum() / y_pred['pitch'].shape[0]
+                ratios[f"{k}_ratio"] = pred_ratio
+            self.log_losses(ratios, log, prog_bar=False)
         return x_hat, z_params, z, y_pred_params, y_pred
 
     def loss(self, batch, x, z_params, z, y_params = None, drop_detail = False, **kwargs):
@@ -322,7 +330,7 @@ class AutoEncoder(Model):
                     if len(sup_idx) > 0:
                         sup_params = dist_select(p, sup_idx)
                         sup_labels = y[t].index_select(-1, sup_idx)
-                        sup_loss = - sup_params.log_prob(sup_labels).mean(0).sum()
+                        sup_loss = sup_params.log_prob(sup_labels).mean(0).sum()
                         loss = loss - self.config.prediction[t].get('weight', 1.0) * sup_loss
                         classif_losses[f"{t}_logdensity"] = sup_loss.detach().cpu().item()
 
@@ -348,7 +356,7 @@ class AutoEncoder(Model):
 
     def training_step(self, batch, batch_idx):
         # training_step defined the train loop.
-        x, z_params, z, y_params, y = self.full_forward(batch, batch_idx, use_predictions=False)
+        x, z_params, z, y_params, y = self.full_forward(batch, batch_idx, use_predictions=False, log="train")
         loss, losses = self.loss(batch, x, z_params, z, y_params=y_params, epoch=self.trainer.current_epoch, drop_detail=True)
         losses['beta'] = self.get_beta()
         self.log_losses(losses, "train", prog_bar=True)
@@ -356,7 +364,7 @@ class AutoEncoder(Model):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        x, z_params, z, y_params, y = self.full_forward(batch, batch_idx, use_predictions=True)
+        x, z_params, z, y_params, y = self.full_forward(batch, batch_idx, use_predictions=True, log="val")
         loss, losses = self.loss(batch, x, z_params, z, y_params=y_params, drop_detail=True)
         self.log_losses(losses, "valid", prog_bar=True)
         return loss
@@ -393,6 +401,10 @@ class AutoEncoder(Model):
                 trace['histograms'][f'pred_{t}'] = y_pred_params[t].sample()
         return trace
 
+    @property
+    def has_classifiers(self):
+        return hasattr(self, "prediction_modules")
+
     def reconstruct(self, x, *args, sample_latent=False, sample_data=False, **kwargs):
         x_out, _, _, _, _ = self.full_forward(_recursive_to(x, self.device), sample=sample_latent)
         if isinstance(x_out, dist.Distribution):
@@ -413,8 +425,7 @@ class AutoEncoder(Model):
                     y[t] = torch.randint(0, self.conditionings[t]['dim'], (n_samples,), device=self.device)
         for t in temperature:
             z = torch.randn((n_samples, self.latent.dim), device=self.device) * t
-            decoder_input = self.get_decoder_input(z, y)
-            x = self.decode(decoder_input)
+            x = self.decode(z, y=y)
             if not torch.is_tensor(x):
                 if sample:
                     x = x.sample()
@@ -422,5 +433,3 @@ class AutoEncoder(Model):
                     x = x.mean
             generations.append(x)
         return torch.stack(generations, 1)
-
-

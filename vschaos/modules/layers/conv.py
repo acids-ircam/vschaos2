@@ -365,7 +365,7 @@ class ConvLayer(nn.Module):
         self.channels = channels
         self.kernel_size = check_conv_param(kernel_size, dim)
         if padding is None:
-            padding = np.floor(np.array(self.kernel_size) / 2).astype(np.int)
+            padding = np.floor(np.array(self.kernel_size) / 2).astype(np.int16)
         self.padding = check_conv_param(padding, dim)
         self.dilation = check_conv_param(dilation, dim)
         self.stride = check_conv_param(stride, dim)
@@ -523,7 +523,7 @@ class DeconvLayer(ConvLayer):
         out_shape = np.floor((np.array(output_dim) + 2 * padding - dilation * (kernel_size - 1) - 1) / stride + 1)
         reversed_shape = stride * (out_shape - 1) - 2 * padding + dilation * (kernel_size - 1) + 1
         # print(output_dim, reversed_shape, out_shape)
-        return (output_dim - reversed_shape).astype(np.int), out_shape
+        return (output_dim - reversed_shape).astype(np.int16), out_shape
 
     def output_shape(self, input_dim: Union[Iterable[int], int]) -> np.ndarray:
         """

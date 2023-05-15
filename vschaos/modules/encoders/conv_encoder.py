@@ -141,7 +141,7 @@ class ConvEncoder(nn.Module):
                     flatten_module.append(layers.ConvLayer([self.channels[-1], self.channels[-1]],
                                                             kernel_size = self.kernel_size[-1]))
                 flatten_module.append(layers.ConvLayer([self.channels[-1], self.channels[-1]],
-                                                       kernel_size=current_shape.astype(np.int).tolist(),
+                                                       kernel_size=current_shape.astype(np.int16).tolist(),
                                                        padding=0))
                 flatten_module.append(Reshape(self.channels[-1], incoming_dim=(self.dim+1)))
                 flatten_module.append(layers.MLPLayer(self.channels[-1], target_shape, norm=None, nnlin=None))
@@ -413,7 +413,7 @@ class ConvEncoder(nn.Module):
                     flatten_module.append(layers.ConvLayer([self.channels[-1], self.channels[-1]],
                                                             kernel_size = self.kernel_size[-1]))
                 flatten_module.append(layers.ConvLayer([self.channels[-1], self.channels[-1]],
-                                                       kernel_size=current_shape.astype(np.int).tolist(),
+                                                       kernel_size=current_shape.astype(np.int16).tolist(),
                                                        padding=0))
                 flatten_module.append(Reshape(self.channels[-1], incoming_dim=(self.dim+1)))
                 flatten_module.append(layers.MLPLayer(self.channels[-1], target_shape, norm=None, nnlin=None))
