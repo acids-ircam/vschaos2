@@ -1,6 +1,7 @@
-# vschaos2
+![vschaos2](assets/logo_small.png)
 
-`vschaos2`, [based on the original `vschaos` package](https://github.com/domkirke/vschaos) [1][2], is a vintage-flavoured neural audio synthesis package. It is based on unsupervised / (semi-)supervised training of spectral information using variational auto-encoders [3], allowing direct manipulation in Max/MSP or PureData environments using [nn_tilde](https://github.com/acids-ircam/nn_tilde). `vschaos2` may be trained on small batches of data, is very light, usable using small architectures, and can also be used for auxiliary predictive tasks.
+# vschaos2: vintage neural audio synthesis
+`vschaos2`, [based on the original 2019 `vschaos` package](https://github.com/domkirke/vschaos) [1][2], is a vintage-flavoured neural audio synthesis package. It is based on unsupervised / (semi-)supervised training of spectral information using variational auto-encoders [3], allowing direct manipulation in Max/MSP or PureData environments using [nn_tilde](https://github.com/acids-ircam/nn_tilde). `vschaos2` may be trained on small batches of data, is very light, usable using small architectures, and can also be used for auxiliary predictive tasks.
 
 See an example of vschaos in live action [here](https://www.youtube.com/watch?v=zGnvID6EMbU&list=PLScv8n5132x_6OR7cPQ2yWW4GDtOboRWW&index=4).
 
