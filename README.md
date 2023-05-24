@@ -9,7 +9,7 @@ See an example of vschaos in live action [here](https://www.youtube.com/watch?v=
 1. Download the current repository.
 2. If you don't have PureData or Max, [download PureData for free](https://puredata.info/) or [Max for evaluation](https://cycling74.com/downloads).
 3. Install nn~ following instructions [here](https://github.com/acids-ircam/).
-4. Download the `ordinario` pre-trained model on [the ACIDS github page](acids-ircam.github.io) into the `patches` subfolder if using Max, or in the `externals` sub-folder or Pd Library.
+4. Download the `ordinario_8192.ts` pre-trained model on [the pre-trained models Dropbox folder](https://www.dropbox.com/sh/avdeiza7c6bn2of/AAAGZsnRo9ZVMa0iFhouCBL-a?dl=1) into the `patches` subfolder if using Max, or in the `externals` sub-folder or Pd Library.
 5. Open `pd_example.pd` or `max_example.maxpat`, depending the choice you made at step 1.
 6. Play!
 
