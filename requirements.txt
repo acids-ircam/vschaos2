@@ -15,7 +15,7 @@ torchcrepe
 tensorboard
 pytorch_lightning==1.6
 hydra-core==1.2
-git+https://github.com/caillonantoine/cached_conv.git#egg=cached_conv
+#git+https://github.com/caillonantoine/cached_conv.git#egg=cached_conv
 git+https://github.com/domkirke/acids_transforms.git
 git+https://github.com/domkirke/lardon.git
 git+https://github.com/acids-ircam/nn_tilde.git@feature/attributes

@@ -1,8 +1,8 @@
-import numpy as np, trajectories as tj, torch, torchaudio, os, re
+import numpy as np, torch, torchaudio, os, re
 from .misc import checklist
 from functools import reduce
 from typing import Dict
-import trajectories as tj
+# import trajectories as tj
 from tqdm import tqdm
 
 valid_exts = [".mp3", ".m4a", ".wav", ".aif", ".aiff", ".ogg"]
@@ -31,6 +31,7 @@ def invert_transform(data, transform, config):
     data_inv = transform.invert(data)
     return data_inv, sr
 
+"""
 def stretch_trajectory(latent_traj: torch.Tensor, factor: float, t_range =  np.array([0., 1.]), dim: int = -2):
     n_steps = latent_traj.shape[0]
     t = np.linspace(0., 1., int(n_steps * factor))
@@ -48,6 +49,8 @@ def interpolate_trajectories(trajectories, anchors, n_interp):
     t = np.linspace(0., 1., n_interp)
     traj = tj.Morphing_(trajectories=trajectories, anchors=anchors)(t)
     return traj
+"""
+
 
 def get_transferable_keys(models):
     names_set = []

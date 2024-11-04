@@ -45,6 +45,7 @@ data:
     #   mode: random
     #   idx: -2
   loader:
+    num_workers: 4
     batch_size: 256
     shuffle: True
 
