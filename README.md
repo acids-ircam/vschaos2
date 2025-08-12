@@ -151,11 +151,17 @@ python3 generate.py trajectories path_to_rundir --trajectories sin random line -
 to generate 3 batches of random sin, random and line 512-stepped trajectories, that will be saved in the `path_to_out/trajectories`.
 
 ### Exporting for nn~
-To export a model, just use the `script.py` with the training folder : 
+To export a model, just use the `script.py` with the training folder :
+
 ```sh
 python3 script.py path_to_model/ -o output_dir/ -v version_number -n name
 ```
+
 where `path_to_model/` is the training `rundir`, `version_number` is the version number of the training (if not indicated, take the last training) and `name` the model name (default : `last`). The `.ts` file will be exported at `path_to_model/`, and can be imported by `nn~`. 
+
+⚠️ Because of `nn~` constraints to compute required buffer lenghts (to be updated), you will have to set manually the buffer size in the nn~ object to the FFT window size, otherwise the model will not be encoding or forwarding.
+
+![buffer_size](assets/buffer_size.png)
 
 # References
 

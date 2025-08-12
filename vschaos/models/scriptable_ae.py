@@ -222,6 +222,7 @@ class ScriptableSpectralAutoEncoder(nn_tilde.Module):
         self.register_attribute('inversion_mode', 'keep_input')
         self.register_attribute('temperature', 0.0)
         self.register_attribute('dimred', 'none')
+        self.register_attribute('min_buffer_size', self.win_length)
 
     @torch.jit.export
     def get_methods(self):
@@ -309,6 +310,15 @@ class ScriptableSpectralAutoEncoder(nn_tilde.Module):
                 return -1
         return 0
 
+    @torch.jit.export
+    def get_min_buffer_size(self) -> int:
+        return self.min_buffer_size[0]
+
+    @torch.jit.export
+    def set_min_buffer_size(self) -> int:
+        # min_buffer_size cannot be set
+        return -1
+
     def transform_label(self, y: torch.Tensor, task: str) -> torch.Tensor:
         for t, embed in self.concat_embeddings.items():
             if t==task: 
@@ -324,11 +334,29 @@ class ScriptableSpectralAutoEncoder(nn_tilde.Module):
     def get_prediction_module(self, task: str):
         raise ValueError("prediction module for task %s not found"%task)
 
+    def get_forward_ordered_tasks(self):
+        if torch.jit.is_scripting(): 
+            return self._forward_ordered_tasks
+        else:
+            return self._forward_ordered_tasks.value
+
+    def get_encoder_ordered_tasks(self):
+        if torch.jit.is_scripting(): 
+            return self._encoder_ordered_tasks
+        else:
+            return self._encoder_ordered_tasks.value
+    
+    def get_decoder_ordered_tasks(self):
+        if torch.jit.is_scripting(): 
+            return self._decoder_ordered_tasks
+        else:
+            return self._decoder_ordered_tasks.value
+
     def split_encoder_input(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         splits = (self.input_shape[0], ) + (1,) * (x.size(-2) - self.input_shape[0])
         x_splitted = list(x.split(splits, -2))
         current_id = 1
-        for t in self._encoder_ordered_tasks:
+        for t in self.get_encoder_ordered_tasks():
             x_splitted[current_id] = self.transform_label(x_splitted[current_id], t).float()
             current_id += 1
         x = x_splitted[0] 
@@ -342,7 +370,7 @@ class ScriptableSpectralAutoEncoder(nn_tilde.Module):
         splits = (self.latent_dim, ) + (1,) * (z.size(-1) - self.latent_dim)
         z_splitted = list(z.split(splits, -1))
         current_id = 1
-        for t in self._decoder_ordered_tasks:
+        for t in self.get_decoder_ordered_tasks():
             z_splitted[current_id] = self.transform_label(z_splitted[current_id], t).float()
             current_id += 1
         x = z_splitted[0] 
@@ -357,8 +385,8 @@ class ScriptableSpectralAutoEncoder(nn_tilde.Module):
         x_splitted = list(x.split(splits, -2))
         encoder_input = []
         current_id = 1
-        for t in self._forward_ordered_tasks:
-            if t in self._encoder_ordered_tasks:
+        for t in self.get_forward_ordered_tasks():
+            if t in self.get_encoder_ordered_tasks():
                 x_splitted[current_id] = self.transform_label(x_splitted[current_id], t).float()
                 encoder_input.append(x_splitted[current_id])
             current_id += 1
@@ -371,26 +399,26 @@ class ScriptableSpectralAutoEncoder(nn_tilde.Module):
 
     def get_encoder_input(self, x: torch.Tensor):
         y = torch.tensor(0)
-        if len(self._encoder_ordered_tasks) > 0:
+        if len(self.get_encoder_ordered_tasks()) > 0:
             x, y = self.split_encoder_input(x)
         if self.transform is not None:
             x = self.transform(x)
-        if len(self._encoder_ordered_tasks) > 0:
+        if len(self.get_encoder_ordered_tasks()) > 0:
             x = torch.cat([x, reshape_cond(y, x)], -2)
         return x
     
     def get_decoder_input(self, z: torch.Tensor) -> torch.Tensor:
         y = torch.tensor(0)
-        if len(self._decoder_ordered_tasks) > 0:
+        if len(self.get_decoder_ordered_tasks()) > 0:
             z, y = self.split_decoder_input(z)
         z = self.unproject_z(z)
-        if len(self._decoder_ordered_tasks) > 0:
+        if len(self.get_decoder_ordered_tasks()) > 0:
             z = torch.cat([z, y], -1)
         return z
 
     def get_forward_input(self, x: torch.Tensor):
         y = torch.tensor(0)
-        fot: List[str] = self._encoder_ordered_tasks
+        fot: List[str] = self.get_encoder_ordered_tasks()
         if len(fot) > 0:
             x, y = self.split_forward_input(x)
         if self.transform is not None:
@@ -405,14 +433,14 @@ class ScriptableSpectralAutoEncoder(nn_tilde.Module):
         predicted_y_list = []
         if self.use_dimred:
             z = self.unproject_z(z)
-        if len(self._decoder_ordered_tasks) > 0:
+        if len(self.get_decoder_ordered_tasks()) > 0:
             splits = (self.input_shape[0], ) + (1,) * (x.size(-2) - self.input_shape[0])
             x_splitted = list(x.split(splits, -2))
             metadatas = []
             current_id = 1
-            for t in self._decoder_ordered_tasks:
+            for t in self.get_decoder_ordered_tasks():
                 current_meta = torch.zeros(0)
-                if t in self._forward_ordered_tasks:
+                if t in self.get_forward_ordered_tasks():
                     current_meta = self.transform_label(x_splitted[current_id][..., 0, :], t)
                     current_id += 1
                 elif t in self.prediction_modules:
