@@ -107,8 +107,10 @@ class Normal(AudioAugmentation):
         self.mode = mode
         self.dims = checklist(dims)
         if clamp is not None:
-            clamp[0] = None if clamp[0] == "none" else float(clamp[0])
-            clamp[1] = None if clamp[1] == "none" else float(clamp[1])
+            if clamp[0] is not None:
+                clamp[0] = None if clamp[0] == "none" else float(clamp[0])
+            if clamp[1] is not None:
+                clamp[1] = None if clamp[1] == "none" else float(clamp[1])
         self.clamp = clamp
 
     def augment(self, x: torch.Tensor, y: MetaType = None, **kwargs) -> OutputType:
