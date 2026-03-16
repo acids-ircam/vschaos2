@@ -202,7 +202,6 @@ class AudioReconstructionMonitor(Callback):
                                 trainer.logger.experiment.add_audio('generation', raw_generation, global_step=trainer.current_epoch,
                                                                 sample_rate=dataset.sr)
 
-            print('prior sampling...')
             # plot prior sampling
             if hasattr(model, 'sample_from_prior') and epoch >= self.generate_after_n_epochs:
                 if self.plot_samples:
@@ -218,7 +217,6 @@ class AudioReconstructionMonitor(Callback):
                             samples_raw = samples_raw[0]
                         trainer.logger.experiment.add_audio('audio_samples', samples_raw, global_step=trainer.current_epoch, sample_rate=dataset.sr)
 
-            print('decode...')
             # generate trajectories
             if hasattr(model, 'decode'):
                 if self.generate_trajs and trainer.current_epoch % self.generate_trajs == 0 and epoch >= self.generate_after_n_epochs:
