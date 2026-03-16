@@ -63,7 +63,7 @@ def parse_predictions(frequency, periodicity, hop_length, sr, batch_size, thresh
         count += 1
     return pitch_str, octave_str
 
-def extract_pitch(input, hop_length, fmin, fmax, threshold, batch_size): 
+def extract_pitch(input, hop_length=256, fmin=50, fmax=1000, threshold=1e-2, batch_size=256): 
     device = torch.device('cpu')
     if torch.cuda.is_available():
         visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES", "")
