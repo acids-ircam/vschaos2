@@ -20,7 +20,7 @@ Use your favorite environment manager to create a specific python environment fo
 cd your_target_folder
 git clone http://www.github.com/acids_ircam/vschaos2
 cd vschaos2
-conda create -n vschaos python=3.8 setuptools==59.5.0
+conda create -n vschaos python=3.11 setuptools==59.5.0
 conda activate vschaos
 pip install -r requirements.txt
 ```
