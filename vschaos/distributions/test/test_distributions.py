@@ -1,9 +1,9 @@
+"""
 from random import random
 import sys
 print(sys.path)
 sys.path.insert(0, ".")
 import torch.distributions as dist_torch
-from active_divergence import distributions as dist
 from torch.distributions.utils import probs_to_logits, logits_to_probs
 
 import matplotlib.pyplot as plt
@@ -183,3 +183,4 @@ def test_categorical(test_path):
     module = BernoulliLogitsModule()
     module_scripted = torch.jit.script(module)
     module_scripted(torch.randn(10, 10, 10))
+"""

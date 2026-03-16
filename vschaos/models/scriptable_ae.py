@@ -165,7 +165,7 @@ class ScriptableSpectralAutoEncoder(nn_tilde.Module):
 
         # get ordered tasks
         # self._ordered_tasks = [o for o in auto_encoder.config.get('conditioning', {}).keys()]
-        self._ordered_tasks = list(auto_encoder.config.get('conditioning', {}).keys()) + list(auto_encoder.config.get('prediction', {}).keys())
+        self._ordered_tasks = set(list(auto_encoder.config.get('conditioning', {}).keys()) + list(auto_encoder.config.get('prediction', {}).keys()))
         self._encoder_ordered_tasks = torch.jit.Attribute([], List[str])
         self._decoder_ordered_tasks = torch.jit.Attribute([], List[str])
         self._forward_ordered_tasks = torch.jit.Attribute([], List[str])
@@ -523,7 +523,8 @@ class ScriptableSpectralAutoEncoder(nn_tilde.Module):
             x = self.overlap_add(x)
             outs = []
             predicted_outs = torch.zeros(0) 
-            for i in range(x.size(-2)):
+            # for i in range(x.size(-2)):
+            for i in range(x.shape[-2]):
                 x_tmp = x[..., i, :]
                 x_enc = self.get_forward_input(x_tmp)
                 z = self.encoder(x_enc)
@@ -534,10 +535,8 @@ class ScriptableSpectralAutoEncoder(nn_tilde.Module):
                     x_rec = x_rec.mean
                 if self.transform is not None:
                     x_rec = self.transform.invert(x_rec)
-                print("predicted : ", predicted_outs.shape)
                 if predicted_outs.size(0) != 0:
                     x_rec = torch.cat([x_rec, reshape_cond(predicted_outs, x_rec)], -2)
-                print('x_rec size : ', x_rec.shape)
                 outs.append(x_rec)
             outs = torch.stack(outs, -2)
             outs = self.overlap_add.invert(outs)

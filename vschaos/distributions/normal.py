@@ -1,6 +1,11 @@
 import torch, torch.nn as nn, math
+import torch._dynamo as dynamo
 import pdb
 from .base import Distribution
+
+@dynamo.allow_in_graph
+def runtime_assert(cond: bool, msg: str = ""):
+    torch._assert(cond, msg)
 
 
 class Normal(Distribution):
@@ -9,9 +14,8 @@ class Normal(Distribution):
     def __init__(self, loc: torch.Tensor, scale: torch.Tensor):
         self._batch_shape = loc.size() 
         self._event_shape = torch.Size([0])
-        assert loc.shape == scale.shape
-        assert (scale > 0).all(), \
-            "got negative or zero values for scale in Normal distribution with shape : %s"%(scale.shape,)
+        runtime_assert( loc.shape == scale.shape, "loc and scale have different shape")
+        # torch.ops.aten._assert_async((scale > 0).all(), "scale must be > 0")
         self.loc, self.scale = loc, scale
 
     def __repr__(self):

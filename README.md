@@ -42,31 +42,44 @@ my_dataset/
 ```
 ### Metadata
 Metadata can be specified in two different ways. If every file belong to a single class, metadata may only containt the `metadata.txt` files wit the following information : 
-```
+
+```txt
 data/..../file1.wav metadata
 data/..../file2.wav metadata
 ...
 ```
+
 where key and field are separated by a `\t` character. If metadata changes during the audio file, an additional folder `tracks` folder must be added such that the `metadata.txt` contains 
-```
+
+```txt
 data/..../file1.wav tracks/metadata_file1.txt
 data/..../file2.wav tracks/metadata_file2.txt
 ...
 ```
 
 and the folder `tracks` contains the metadata for each audio file in a separated text file, containing
-```
+
+```txt
 0.0,1.0 metadata1
 1.0,1.025 metadata2
 ```
+
 where onsets and offsets are indicated in seconds (separated by a comma), and are separated from metadata by a `\t` character. Metadata can be float,int, or `none`, hence allowing semi-supervised training.
+
+**Pitch class / octave** - a script is provided with vschaos2, allowing to automatically parse pitches and octaves from your dataset. Once your data is organised as specified above (with data in `my_dataset/data/`), you can extract pitch & octave my data by running :
+
+```sh
+python extract_pitch.py ${PATH_TO_DATASET}
+```
+
+and the script will create the `my_dataset/metadata/pitch` and `my_dataset/metadata/octave` folder.
 
 
 ## Training a model
 ### Unsupervised model
 Model configurations are based on the `hydra` configuration manager, using `.yaml` to specify the VAE's architecture. Commented configurations are given in the `configs/` folder, such that you only need to specify the data path and the tranining root / name : 
 ```bash
-python3 train_model.py --config-name dgt_mid name=my_training rundir=my_path +data.dataset.root=my_data
+python3 train.py --config-name dgt_mid name=my_training rundir=my_path +data.dataset.root=my_data
 ```
 where `--config-name` is followed by the name of a configuration file in the `configs/` subfolder, `my_training` is a customized training name, `my_path` the location of the training, and `my_data` is the path of a formatted dataset (see section [data management](#data-management)).
 
@@ -132,6 +145,7 @@ such that the model's decoder will be conditioned by both pitch and octave, that
 ### Tricks
 - You can add the `+check=1` option to `train.py` to add a breakpoint before lauching the training loop, allowing to check the architecture of your model and your dataset.
 - You can also add the `+data.dataset.n_files=X` to only load `X` files from your dataset, allowing you to train on small data subsets to verify that your training setup works.
+- You can change the latent space dimensionality by adding `model.latent.dim=X`, `X` being the number of latent dimensions as an integer.
 
 ## Generating with a trained model
 
@@ -143,12 +157,6 @@ The script `generate.py` allows to generate from a model using the command line.
 python3 generate.py reconstruct path_to_rundir --files path_to_audio.wav path_to_audio_folder/ --sr 44100 --out path_to_out/
 ```
 to export the generations in the `path_to_out/reconstructions` folder. 
-
-**Trajectories.** To directly generate from the latent space from random trajectories, you can execute
-```sh
-python3 generate.py trajectories path_to_rundir --trajectories sin random line --sr 44100 -b 3 -s 512 --out path_to_out/
-```
-to generate 3 batches of random sin, random and line 512-stepped trajectories, that will be saved in the `path_to_out/trajectories`.
 
 ### Exporting for nn~
 To export a model, just use the `script.py` with the training folder :

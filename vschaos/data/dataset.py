@@ -46,9 +46,12 @@ def parse_folder(d, valid_exts):
 
 type_hash = {"int":int, "str": str, "float": float}
 def get_callback_from_config(config):
-    callback_name = config.get('name', 'read_metadata')
-    callback_type = type_hash[config.get('type', 'int')]
-    return getattr(am, callback_name)(callback_type)
+    callback_name = config.get('name', 'read_metadata').split(',')
+    callbacks = []
+    for cn in callback_name:
+        callback_type = type_hash[config.get('type', 'int')]
+        callbacks.append(getattr(am, cn.strip())(callback_type))
+    return callbacks
 
 def import_classes(f):
     classes = {}
@@ -576,7 +579,14 @@ class AudioDataset(Dataset):
                     current_hash[file] = raw_metadata
             for file, idx in self.hash.items():
                 if file in current_hash.keys():
-                    current_metadata = callback(current_hash[file], current_path=current_directory)
+                    current_metadata = None
+                    for cb in callback:
+                        try:
+                            current_metadata = cb(current_hash[file], current_path=current_directory)
+                        except: 
+                            pass
+                    if current_metadata is None: 
+                        print('could not import metadata from %s with callbacks %s'%(file, callback))
                     metadata[t][idx] = current_metadata
                 else:
                     print('warning : file %s not found in metadata'%(file, ))

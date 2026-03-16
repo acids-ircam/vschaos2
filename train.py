@@ -8,18 +8,29 @@ from vschaos import data, models, get_callbacks
 from vschaos.utils import save_trainig_config, get_root_dir
 logger = logging.getLogger(__name__)
 
-# detect CUDA devices
-CUDA = gpu.getAvailable(maxMemory=.05)
-VISIBLE_DEVICES = os.environ.get("CUDA_VISIBLE_DEVICES", "")
-if VISIBLE_DEVICES:
-    use_gpu = int(int(VISIBLE_DEVICES) >= 0)
-elif len(CUDA):
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(CUDA[0])
-    use_gpu = 1
-elif torch.cuda.is_available():
-    use_gpu = 1
-else:
-    use_gpu = 0
+def get_default_devices(config):
+    try:
+        cuda_available = torch.cuda.is_available()
+    except: 
+        cuda_available = False
+    try:
+        mps_available = torch.mps.device_count() > 0
+    except: 
+        mps_available = False
+
+    accelerator = config.get('accelerator') or ("cuda" if cuda_available else ("mps" if mps_available else "cpu"))
+    devices = config.get('devices') or 1
+
+    if accelerator == "gpu": 
+        if not cuda_available:
+            logging.warning("accelerator set to gpu but cuda is not available ; moving to CPU")
+            accelerator = "cpu"
+    elif accelerator == "mps":
+        if not mps_available:
+            logging.warning("accelerator set to gpu but cuda is not available ; moving to CPU")
+            accelerator = "cpu"
+    return accelerator, devices
+
 
 @hydra.main(config_path="configs", config_name="config", version_base="1.2")
 def main(config: DictConfig, ckpt_path=None):
@@ -33,7 +44,10 @@ def main(config: DictConfig, ckpt_path=None):
     model = getattr(models, config.model.type)(config.model)
     # setup trainer
     trainer_config = config.get('pl_trainer', {})
-    trainer_config['gpus'] = config.get('gpus', use_gpu)
+    accelerator, devices = get_default_devices(trainer_config)
+    trainer_config['accelerator'] = accelerator
+    trainer_config['devices'] = devices  
+    
     trainer_config['default_root_dir'] = get_root_dir(config.rundir, config.name)
     # import callbacks
     callbacks = get_callbacks(config.get('callbacks'), trainer_config['default_root_dir'])

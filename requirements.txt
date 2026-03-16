@@ -8,15 +8,15 @@ scikit_learn>=1.0
 termcolor
 GPUtil
 soundfile
-torch>=1.12
-torchvision
-torchaudio
+torch==2.4
+torchvision==0.19
+torchaudio==2.4
 torchcrepe
 tensorboard
-pytorch_lightning==1.6
+pytorch_lightning==2.4
 hydra-core==1.2
 #git+https://github.com/caillonantoine/cached_conv.git#egg=cached_conv
-git+https://github.com/domkirke/acids_transforms.git
-git+https://github.com/domkirke/lardon.git
-git+https://github.com/acids-ircam/nn_tilde.git@feature/attributes
-git+https://github.com/domkirke/trajectories.git@master
+acids_transforms @ git+https://github.com/domkirke/acids_transforms.git
+lardon @ git+https://github.com/domkirke/lardon.git
+nn_tilde
+#git+https://github.com/domkirke/trajectories.git@master

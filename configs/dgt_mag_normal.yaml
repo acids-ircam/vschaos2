@@ -31,13 +31,13 @@ data:
   dataset:
     metadata_callbacks:
       pitch:
-        name: read_single_metadata
+        name: read_single_metadata, read_multi_metadata
         type: int
       octave:
-        name: read_single_metadata
+        name: read_single_metadata, read_multi_metadata
         type: int
       dynamics:
-        name: read_single_metadata
+        name: read_single_metadata, read_multi_metadata
         type: int
     flatten: -2
     # sequence:

@@ -118,7 +118,7 @@ for current_file in tqdm.tqdm(valid_files, total=len(valid_files), desc="Extract
     x, sr = torchaudio.load(join(root, current_file))
     frequency, periodicity = get_predictions(x, sr, args.hop_length, args.fmin, args.fmax, batch_size=args.batch_size, device=device, thresh=args.threshold)
     pitch_string, octave_string = parse_predictions(frequency, periodicity, args.hop_length, sr)
-    current_file_path = re.sub(os.path.dirname(args.input)+'/', '', current_file)
+    current_file_path = re.sub(os.path.abspath(args.input)+"/", '', current_file)
     pitch_file_path = join(os.path.splitext(os.path.basename(current_file))[0]+".txt")
     octave_file_path = join(os.path.splitext(os.path.basename(current_file))[0]+".txt")
     pitch_metadata_file.write('%s\t%s'%(current_file_path, pitch_file_path))
