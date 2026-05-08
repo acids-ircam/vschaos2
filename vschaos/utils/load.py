@@ -30,7 +30,7 @@ def get_model_version(model_path, name=None):
             raise FileNotFoundError('could not retrieve model from path %s'%model_path)
     return model_path
 
-def load_model_from_run(run_path, version=None, name=None, map_location=torch.device("cpu"), verbose: bool = False):
+def get_paths_from_run(run_path, version=None, name=None, verbose: bool = False):
     run_name = os.path.basename(run_path)
     versions = get_versions(run_path)
     if versions is None:
@@ -40,7 +40,7 @@ def load_model_from_run(run_path, version=None, name=None, map_location=torch.de
         assert os.path.isfile(config_path), f"{config_path} not found"
         assert os.path.isfile(transform_path), f"{transform_path} not found"
     else:
-        target_version = version or max(versions)
+        target_version = version if version is not None else max(versions)
         run_path = join(run_path, f"version_{target_version}")
         model_path = get_model_version(run_path, name=name)
         config_path = join(run_path, f"{run_name}.yaml")
@@ -49,10 +49,13 @@ def load_model_from_run(run_path, version=None, name=None, map_location=torch.de
         assert os.path.isfile(transform_path), f"{transform_path} not found"
     if verbose:
         print('loading model path : %s\n\tconfig path : %s\n\ttransform path : %s'%(model_path, config_path, transform_path))
+    return model_path, config_path, transform_path
 
+def load_model_from_run(run_path, version=None, name=None, map_location=torch.device("cpu"), verbose: bool = False):
+    model_path, config_path, transform_path = get_paths_from_run(run_path, version=version, name=name, verbose=verbose)
     config = OmegaConf.load(config_path)
     model_type = getattr(models, config.model.get('type', 'AutoEncoder'))
-    model = model_type.load_from_checkpoint(model_path, map_location=map_location, strict=False)
+    model = model_type.load_from_checkpoint(model_path, map_location=map_location, strict=False, weights_only=False)
     with open(transform_path, "rb") as f:
         transform = dill.load(f)
     return model, config, transform

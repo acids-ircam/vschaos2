@@ -1,11 +1,13 @@
 import  pdb, os, argparse
+from pathlib import Path
+import dill
 import logging
 import torch, pytorch_lightning as pl, hydra
 from pytorch_lightning.loggers import TensorBoardLogger
 from omegaconf import OmegaConf, DictConfig
 import GPUtil as gpu
 from vschaos import data, models, get_callbacks
-from vschaos.utils import save_trainig_config, get_root_dir
+from vschaos.utils import save_trainig_config, get_root_dir, load_model_from_run, get_paths_from_run
 logger = logging.getLogger(__name__)
 
 def get_default_devices(config):
@@ -34,13 +36,15 @@ def get_default_devices(config):
 
 def train(config: DictConfig):
     OmegaConf.set_struct(config, False)
+
     # import data
     config.data.loader['num_workers'] = config.data.loader.get('num_workers', os.cpu_count())
     data_module = getattr(data, config.data.module)(config.data)
-    data_module.dataset[0]
+    # data_module.dataset[0]
     # import model
     config.model.input_shape = data_module.shape
     model = getattr(models, config.model.type)(config.model)
+
     # setup trainer
     trainer_config = config.get('pl_trainer', {})
     accelerator, devices = get_default_devices(trainer_config)
@@ -57,3 +61,30 @@ def train(config: DictConfig):
     # train!
     save_trainig_config(config, data_module, path=trainer_config['default_root_dir'])
     trainer.fit(model, datamodule=data_module)
+
+
+def resume(model_path, dataset_path, version=None, name="last.ckpt", verbose: bool = False):
+    ckpt_path, config_path, transform_path = get_paths_from_run(model_path, version=version, name=name, verbose=verbose)
+    config = OmegaConf.load(str(config_path))
+
+    config.rundir = str(Path(model_path).parent)
+    config.data.loader['num_workers'] = config.data.loader.get('num_workers', os.cpu_count())
+    config.data.dataset.root = dataset_path
+    data_module = getattr(data, config.data.module)(config.data)
+
+    model = getattr(models, config.model.type)(config.model)
+    with open(transform_path, "rb") as f:
+        transform = dill.load(f)
+
+    trainer_config = config.get('pl_trainer', {})
+    accelerator, devices = get_default_devices(trainer_config)
+    trainer_config['accelerator'] = accelerator
+    trainer_config['devices'] = devices  
+    trainer_config['default_root_dir'] = model_path
+
+    # import callbacks
+    trainer = pl.Trainer(**trainer_config)
+    if bool(config.get('check')):
+        pdb.set_trace()
+    # train!
+    trainer.fit(model, ckpt_path=ckpt_path, datamodule=data_module)

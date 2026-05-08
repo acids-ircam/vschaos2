@@ -1,8 +1,6 @@
 import pytest, sys, os, torch
 if not "../" in sys.path:
     sys.path.insert(0, "../")
-from active_divergence.modules import DeconvEncoder
-from active_divergence.utils import checklist 
 from omegaconf import OmegaConf
 
 current_folder = os.path.dirname(os.path.abspath(__file__))+"/configs/deconv_encoder"
